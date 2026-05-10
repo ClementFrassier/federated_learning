@@ -39,13 +39,19 @@ class Net(nn.Module):
         return x
 
 # Downloads, transforms (to tensors and normalizes), and loads the CIFAR-10 datasets
-def load_data():
-    """Load CIFAR-10 (training and test set)."""
+def load_data(node_id=0, num_clients=10, batch_size=128):
+    """Load CIFAR-10 partitionné par client (simulation non-IID réaliste)."""
     trf = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
     trainset = CIFAR10("./data", train=True, download=True, transform=trf)
-    testset = CIFAR10("./data", train=False, download=True, transform=trf)
-    trainloader = DataLoader(trainset, batch_size=32, shuffle=True)
-    testloader = DataLoader(testset, batch_size=32, shuffle=False)
+    testset  = CIFAR10("./data", train=False, download=True, transform=trf)
+
+    # Partition IID simple : chaque client reçoit 1/num_clients du dataset
+    n = len(trainset) // num_clients          # 50000 // 10 = 5000 images par client
+    indices = list(range(node_id * n, (node_id + 1) * n))
+    client_trainset = torch.utils.data.Subset(trainset, indices)
+
+    trainloader = DataLoader(client_trainset, batch_size=batch_size, shuffle=True)
+    testloader  = DataLoader(testset, batch_size=batch_size, shuffle=False)
     return trainloader, testloader
 
 # Initializes and returns an instance of the PyTorch model (moved to CPU or GPU)
