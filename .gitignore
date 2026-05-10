@@ -17,3 +17,4 @@ state.db
 # Résultats de performances et métriques
 KPI.md
 results.csv
+.resultsfeat/
