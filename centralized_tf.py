@@ -9,6 +9,8 @@ if physical_devices:
 else:
     DEVICE = "CPU"
 
+# Télécharge, normalise et prépare les ensembles de données CIFAR-10 pour l'entraînement et le test
+# Downloads, normalizes, and prepares the CIFAR-10 datasets for training and testing
 def load_data():
     """Load CIFAR-10 (training and test set)."""
     (x_train, y_train), (x_test, y_test) = tf.keras.datasets.cifar10.load_data()
@@ -23,6 +25,8 @@ def load_data():
     
     return trainloader, testloader
 
+# Construit, compile et retourne l'architecture du réseau de neurones (équivalent à la classe Net PyTorch)
+# Builds, compiles, and returns the neural network architecture (equivalent to PyTorch Net)
 def load_model():
     """Returns an instance of our Net model initialized and ready to run."""
     model = tf.keras.models.Sequential([
@@ -44,10 +48,14 @@ def load_model():
     )
     return model
 
+# Entraîne le modèle sur les données d'entraînement pour un nombre d'époques donné
+# Trains the model on the training data for a specified number of epochs
 def train(net, trainloader, epochs):
     """Train the model on the training set."""
     net.fit(trainloader, epochs=epochs)
 
+# Évalue les performances du modèle sur les données de test et retourne la perte (loss) et la précision (accuracy)
+# Evaluates model performance on the test set and returns loss and accuracy
 def test(net, testloader):
     """Validate the model on the test set."""
     loss, accuracy = net.evaluate(testloader, verbose=0)
