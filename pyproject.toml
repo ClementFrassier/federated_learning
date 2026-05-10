@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytorch-flwr"
+version = "1.0.0"
+description = "Federated Learning with Flower"
+license = {text = "MIT"}
+dependencies = [
+    "flwr>=1.8.0",
+    "torch",
+    "torchvision",
+]
+
+[tool.flwr.app]
+publisher = "flwr"
+
+[tool.flwr.app.components]
+serverapp = "server:app"
+clientapp = "client:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 3
