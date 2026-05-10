@@ -20,6 +20,10 @@ class FlowerClient(NumPyClient):
         self.global_net = load_model()
         self.local_net = load_model()
         self.local_net.load_state_dict(self.global_net.state_dict())
+        
+        from opacus import PrivacyEngine
+        self.privacy_engine = PrivacyEngine()  # persistante entre les rounds
+        self.total_epsilon = 0.0
 
     def get_parameters(self, config):
         # On renvoie les paramètres du modèle global
@@ -39,17 +43,23 @@ class FlowerClient(NumPyClient):
         # 1. Réception des poids globaux w_t
         self.set_parameters(parameters)
         
+        # FIX 1 : synchroniser local_net sur les poids globaux reçus avant chaque round
+        self.local_net.load_state_dict(self.global_net.state_dict())
+        
         # 2. Entraînement Ditto + Local DP
-        mu = config.get("proximal_mu", 0.1) # Si le serveur l'envoie via la configuration
+        mu = config.get("proximal_mu", 0.01) # Si le serveur l'envoie via la configuration
         self.global_net, self.local_net, dp_epsilon = train_ditto_dp(self.global_net, self.local_net, trainloader, epochs=1, mu=mu)
+        
+        # Accumulation de l'epsilon
+        self.total_epsilon += dp_epsilon
         
         # 3. Sparsification des paramètres avant envoi (50% de pruning)
         params_to_return = self.get_parameters(config)
         sparsity_ratio = 0.5
         sparse_params_to_return = apply_sparsification(params_to_return, sparsity_ratio=sparsity_ratio)
         
-        # Calcul de la taille de communication compressée
-        comm_size_mb = (sum([p.nbytes for p in sparse_params_to_return]) / (1024 * 1024)) * (1.0 - sparsity_ratio)
+        # Calcul de la taille de communication (fix cosmétique)
+        comm_size_mb = sum([p.nbytes for p in sparse_params_to_return]) / (1024 * 1024)
         
         _, peak_ram = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -64,7 +74,7 @@ class FlowerClient(NumPyClient):
             "peak_ram_mb": float(peak_ram_mb),
             "comm_size_mb": float(comm_size_mb),
             "model_size_mb": float(get_model_size(self.local_net)),
-            "dp_epsilon": float(dp_epsilon),
+            "dp_epsilon": float(self.total_epsilon),
             "estimated_energy": float(estimated_energy)
         }
         
