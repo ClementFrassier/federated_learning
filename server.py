@@ -15,8 +15,8 @@ class MetricLogger:
 logger = MetricLogger()
 
 def write_to_csv(round_num, phase, metrics):
-    file_exists = os.path.isfile('results.csv')
-    with open('results.csv', mode='a', newline='') as f:
+    file_exists = os.path.isfile('results_ditto-FedYogi-sdp-secAgg-sparse.csv')
+    with open('results_ditto-FedYogi-sdp-secAgg-sparse.csv', mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(['Round', 'Phase', 'Metric', 'Value'])
