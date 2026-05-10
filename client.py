@@ -18,6 +18,8 @@ class FlowerClient(NumPyClient):
     def __init__(self):
         # Un seul modèle. FedGN garde les couches de normalisation en local.
         self.net = load_model()
+        self.net_before_fit = load_model()
+        self.net_before_fit.load_state_dict(self.net.state_dict())
 
     def get_parameters(self, config):
         # On ne renvoie pas les paramètres GroupNorm (FedGN) au serveur
