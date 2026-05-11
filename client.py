@@ -12,29 +12,42 @@ import numpy as np
 import time
 import tracemalloc
 
-trainloader, testloader = load_data()
-
 class FlowerClient(NumPyClient):
-    def __init__(self):
+    def __init__(self, node_id: int):
         # Ditto utilise deux modèles : un global (pour le serveur) et un local (personnalisé)
         self.global_net = load_model()
         self.local_net = load_model()
         self.local_net.load_state_dict(self.global_net.state_dict())
         
+        # Chaque client charge SA partition
+        self.trainloader, self.testloader = load_data(
+            node_id=node_id,
+            num_clients=10,
+            batch_size=128
+        )
+        
         from opacus import PrivacyEngine
-        self.privacy_engine = PrivacyEngine()  # persistante entre les rounds
+        self.privacy_engine = PrivacyEngine()
+        global_optimizer = torch.optim.SGD(self.global_net.parameters(), lr=0.001, momentum=0.9)
+        self.global_net_dp, self.global_optimizer_dp, self.trainloader_dp = self.privacy_engine.make_private(
+            module=self.global_net,
+            optimizer=global_optimizer,
+            data_loader=self.trainloader,
+            noise_multiplier=0.5,
+            max_grad_norm=1.0,
+        )
         self.total_epsilon = 0.0
 
     def get_parameters(self, config):
-        # On renvoie les paramètres du modèle global
-        return [val.cpu().numpy() for _, val in self.global_net.state_dict().items()]
+        # Lire depuis le module unwrappé
+        return [val.cpu().numpy() for _, val in self.global_net_dp._module.state_dict().items()]
 
     def set_parameters(self, parameters):
-        state_dict = self.global_net.state_dict()
+        state_dict = self.global_net_dp._module.state_dict()
         param_dict = zip(state_dict.keys(), parameters)
         update_dict = OrderedDict({k: torch.tensor(v) for k, v in param_dict})
         state_dict.update(update_dict)
-        self.global_net.load_state_dict(state_dict, strict=True)
+        self.global_net_dp._module.load_state_dict(state_dict, strict=True)
 
     def fit(self, parameters, config): 
         start_time = time.time()
@@ -44,14 +57,17 @@ class FlowerClient(NumPyClient):
         self.set_parameters(parameters)
         
         # FIX 1 : synchroniser local_net sur les poids globaux reçus avant chaque round
-        self.local_net.load_state_dict(self.global_net.state_dict())
+        self.local_net.load_state_dict(self.global_net_dp._module.state_dict())
         
         # 2. Entraînement Ditto + Local DP
         mu = config.get("proximal_mu", 0.01) # Si le serveur l'envoie via la configuration
-        self.global_net, self.local_net, dp_epsilon = train_ditto_dp(self.global_net, self.local_net, trainloader, epochs=1, mu=mu)
+        self.global_net, self.local_net = train_ditto_dp(
+            self.global_net_dp, self.global_optimizer_dp, self.trainloader_dp,
+            self.local_net, epochs=1, mu=mu
+        )
+        self.total_epsilon = self.privacy_engine.get_epsilon(delta=1e-5)
         
-        # Accumulation de l'epsilon
-        self.total_epsilon += dp_epsilon
+        # Accumulation de l'epsilon (déjà géré par opacus get_epsilon)
         
         # 3. Sparsification des paramètres avant envoi (50% de pruning)
         params_to_return = self.get_parameters(config)
@@ -78,7 +94,7 @@ class FlowerClient(NumPyClient):
             "estimated_energy": float(estimated_energy)
         }
         
-        return sparse_params_to_return, len(trainloader.dataset), metrics
+        return sparse_params_to_return, len(self.trainloader.dataset), metrics
     
     def evaluate(self, parameters, config): 
         start_time = time.time()
@@ -88,19 +104,23 @@ class FlowerClient(NumPyClient):
         
         # ÉVALUATION 1 : Modèle "Global"
         # Permet de voir la précision si l'on s'arrêtait à la simple agrégation du serveur.
-        _, acc_global = test(self.global_net, testloader)
+        _, acc_global = test(self.global_net_dp._module, self.testloader)
         
         # ÉVALUATION 2 : Modèle Local personnalisé (Après l'entraînement Ditto)
-        _, acc_local_fp32 = test(self.local_net, testloader)
+        _, acc_local_fp32 = test(self.local_net, self.testloader)
         
         # ÉVALUATION 3 : Modèle Local Quantifié (Déploiement TinyML virtuel)
-        net_cpu = self.local_net.to('cpu')
+        net_cpu = type(self.local_net)()  # nouvelle instance vide
+        net_cpu.load_state_dict(
+            {k: v.cpu() for k, v in self.local_net.state_dict().items()}
+        )
+
         net_quantized = torch.quantization.quantize_dynamic(
             net_cpu, 
             {torch.nn.Linear}, 
             dtype=torch.qint8
         )
-        loss_quantized, acc_quantized = test(net_quantized, testloader, device=torch.device('cpu'))
+        loss_quantized, acc_quantized = test(net_quantized, self.testloader, device=torch.device('cpu'))
         
         eval_time = time.time() - start_time
         
@@ -118,10 +138,11 @@ class FlowerClient(NumPyClient):
             "quantized_model_size_mb": float(get_model_size(net_quantized))
         }
         
-        return float(loss_quantized), len(testloader.dataset), metrics
+        return float(loss_quantized), len(self.testloader.dataset), metrics
 
 # Entry point for Flower
 def client_fn(context: Context):
-    return FlowerClient().to_client()
+    node_id = context.node_config["partition-id"]
+    return FlowerClient(node_id=node_id).to_client()
 
 app = ClientApp(client_fn=client_fn)

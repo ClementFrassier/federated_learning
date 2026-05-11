@@ -23,3 +23,6 @@ clientapp = "client:app"
 
 [tool.flwr.app.config]
 num-server-rounds = 10
+
+[tool.flwr.federations.local-simulation]
+options.num-supernodes = 10

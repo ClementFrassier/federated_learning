@@ -88,32 +88,21 @@ def apply_sparsification(parameters, sparsity_ratio=0.5):
     return sparse_params
 
 # Trains the models with Ditto approach (Global DP + Local Proximal)
-def train_ditto_dp(global_net, local_net, trainloader, epochs, mu=0.1):
+def train_ditto_dp(global_net_dp, global_optimizer_dp, trainloader_dp, local_net, epochs, mu=0.01):
     """
     Ditto trains two models:
     - global_net: Trained with standard SGD (Opacus DP) to be sent to server.
     - local_net: Trained with standard SGD + Proximal penalty towards global_net.
     """
     criterion = torch.nn.CrossEntropyLoss()
-    
-    # Optimizer for Global Net (Standard DP)
-    global_optimizer = torch.optim.SGD(global_net.parameters(), lr=0.001, momentum=0.9)
-    # Optimizer for Local Net (Personalized)
     local_optimizer = torch.optim.SGD(local_net.parameters(), lr=0.001, momentum=0.9)
-    
-    privacy_engine = PrivacyEngine()
-    # Rendre l'entraînement du modèle global privé
-    global_net_dp, global_optimizer_dp, trainloader_dp = privacy_engine.make_private(
-        module=global_net,
-        optimizer=global_optimizer,
-        data_loader=trainloader,
-        noise_multiplier=0.5,
-        max_grad_norm=1.0,
-    )
-    
+
     # Save the initial global weights for the proximal penalty (Ditto local objective)
     # They should be on DEVICE
-    global_params_on_device = {k: v.clone().to(DEVICE) for k, v in global_net.state_dict().items()}
+    global_params_on_device = {
+        k: v.clone().to(DEVICE) 
+        for k, v in global_net_dp._module.state_dict().items()
+    }
     
     global_net_dp.train()
     local_net.train()
@@ -133,22 +122,19 @@ def train_ditto_dp(global_net, local_net, trainloader, epochs, mu=0.1):
             local_loss = criterion(local_net(images), labels)
             
             # Pénalité Proximal : mu/2 * ||v - w_t||^2
-            proximal_term = 0.0
-            for param_name, param in local_net.named_parameters():
-                if param_name in global_params_on_device:
-                    proximal_term += torch.sum((param - global_params_on_device[param_name]) ** 2)
+            proximal_term = sum(
+                torch.sum((p - global_params_on_device[n]) ** 2)
+                for n, p in local_net.named_parameters()
+                if n in global_params_on_device
+            )
             
             total_local_loss = local_loss + (mu / 2.0) * proximal_term
             total_local_loss.backward()
             local_optimizer.step()
             
-    # Recharge les poids dans le réseau global original (retire le wrapper DP)
-    global_net.load_state_dict(global_net_dp._module.state_dict())
-    
-    # Extraction de l'Epsilon consommé (avec un delta standard de 1e-5)
-    epsilon = privacy_engine.get_epsilon(delta=1e-5)
-    
-    return global_net, local_net, epsilon
+    # Resynchroniser global_net (sans wrapper) depuis global_net_dp
+    # (nécessaire pour set_parameters côté Flower)
+    return global_net_dp._module, local_net
 
 # Evaluates the model on the test set without tracking gradients (no_grad) for performance
 def test(net, testloader, device=None):
@@ -177,8 +163,22 @@ if __name__ == "__main__":
     
     trainloader, testloader = load_data()
     
+    from opacus import PrivacyEngine
+    privacy_engine = PrivacyEngine()
+    global_optimizer = torch.optim.SGD(global_model.parameters(), lr=0.001, momentum=0.9)
+    global_model_dp, global_optimizer_dp, trainloader_dp = privacy_engine.make_private(
+        module=global_model,
+        optimizer=global_optimizer,
+        data_loader=trainloader,
+        noise_multiplier=0.5,
+        max_grad_norm=1.0,
+    )
+    
     print("Starting Ditto + DP training...")
-    global_model, local_model, _ = train_ditto_dp(global_model, local_model, trainloader, epochs=2)
+    global_model, local_model = train_ditto_dp(
+        global_model_dp, global_optimizer_dp, trainloader_dp,
+        local_model, epochs=2, mu=0.01
+    )
     
     print("Starting evaluation of local model...")
     loss, accuracy = test(local_model, testloader)
