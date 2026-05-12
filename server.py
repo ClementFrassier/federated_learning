@@ -68,7 +68,7 @@ def fit_config(server_round: int):
     return {"proximal_mu": 0.01}
 
 def server_fn(context: Context) -> ServerAppComponents:
-    num_rounds = context.run_config.get("num-server-rounds", 3)
+    num_rounds = context.run_config.get("num-server-rounds", 30)
     config = ServerConfig(num_rounds=num_rounds)
     
     # Initialisation des paramètres globaux (requis par FedYogi)
