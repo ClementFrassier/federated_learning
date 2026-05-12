@@ -19,7 +19,7 @@ class FlowerClient(NumPyClient):
         self.local_net = load_model()
         self.local_net.load_state_dict(self.global_net.state_dict())
         # Chaque client charge SA partition
-        self.trainloader, self.testloader = load_data(node_id=node_id, num_clients=10, batch_size=64)
+        self.trainloader, self.testloader = load_data(node_id=node_id, num_clients=10, batch_size=32)
 
     def get_parameters(self, config):
         # On renvoie les paramètres du modèle global
@@ -43,8 +43,9 @@ class FlowerClient(NumPyClient):
         self.local_net.load_state_dict(self.global_net.state_dict())
         
         # 2. Entraînement Ditto + Local DP
-        mu = config.get("proximal_mu", 0.01)
-        self.global_net, self.local_net, dp_epsilon = train_ditto_dp(self.global_net, self.local_net, self.trainloader, epochs=1, mu=mu)
+        mu = config.get("proximal_mu", 0.1)
+        local_epochs = config.get("local_epochs", 1)
+        self.global_net, self.local_net, dp_epsilon = train_ditto_dp(self.global_net, self.local_net, self.trainloader, epochs=local_epochs, mu=mu)
         
         # 3. Sparsification des paramètres avant envoi (50% de pruning)
         params_to_return = self.get_parameters(config)

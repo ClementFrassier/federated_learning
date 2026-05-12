@@ -100,7 +100,7 @@ def train_ditto_dp(global_net, local_net, trainloader, epochs, mu=0.1):
         module=global_net,
         optimizer=global_optimizer,
         data_loader=trainloader,
-        noise_multiplier=0.5,
+        noise_multiplier=1.5,
         max_grad_norm=1.0,
     )
     

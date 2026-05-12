@@ -5,16 +5,21 @@ from flwr.server.strategy import FedAvg
 import csv
 import os
 
+CSV_FILE = 'results_ditto-quant-ldp-sparse.csv'
+
 class MetricLogger:
     def __init__(self):
         self.fit_round = 1
         self.eval_round = 1
+        # Supprimer le CSV au démarrage pour éviter les rounds dupliqués
+        if os.path.isfile(CSV_FILE):
+            os.remove(CSV_FILE)
 
 logger = MetricLogger()
 
 def write_to_csv(round_num, phase, metrics):
-    file_exists = os.path.isfile('results_ditto-quant-ldp-sparse.csv')
-    with open('results_ditto-quant-ldp-sparse.csv', mode='a', newline='') as f:
+    file_exists = os.path.isfile(CSV_FILE)
+    with open(CSV_FILE, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(['Round', 'Phase', 'Metric', 'Value'])
@@ -63,10 +68,11 @@ def evaluate_metrics_aggregation_fn(metrics):
     return aggregated
 
 def fit_config(server_round: int):
-    return {"proximal_mu": 0.01}
+    #learning rate
+    return {"proximal_mu": 0.05, "local_epochs": 1}
 
 def server_fn(context: Context) -> ServerAppComponents:
-    num_rounds = context.run_config.get("num-server-rounds", 3)
+    num_rounds = context.run_config.get("num-server-rounds", 30)
     config = ServerConfig(num_rounds=num_rounds)
     
     # Strategy FedAvg (for Ditto architecture)
