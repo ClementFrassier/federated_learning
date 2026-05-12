@@ -62,12 +62,16 @@ def evaluate_metrics_aggregation_fn(metrics):
     logger.eval_round += 1
     return aggregated
 
+def fit_config(server_round: int):
+    return {"proximal_mu": 0.01}
+
 def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = context.run_config.get("num-server-rounds", 3)
     config = ServerConfig(num_rounds=num_rounds)
     
     # Strategy FedAvg (for Ditto architecture)
     strategy = FedAvg(
+        on_fit_config_fn=fit_config,
         fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
         evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn
     )

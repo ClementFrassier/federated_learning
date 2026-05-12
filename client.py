@@ -12,14 +12,14 @@ import numpy as np
 import time
 import tracemalloc
 
-trainloader, testloader = load_data()
-
 class FlowerClient(NumPyClient):
-    def __init__(self):
+    def __init__(self, node_id: int):
         # Ditto utilise deux modèles : un global (pour le serveur) et un local (personnalisé)
         self.global_net = load_model()
         self.local_net = load_model()
         self.local_net.load_state_dict(self.global_net.state_dict())
+        # Chaque client charge SA partition
+        self.trainloader, self.testloader = load_data(node_id=node_id, num_clients=10, batch_size=64)
 
     def get_parameters(self, config):
         # On renvoie les paramètres du modèle global
@@ -39,17 +39,20 @@ class FlowerClient(NumPyClient):
         # 1. Réception des poids globaux w_t
         self.set_parameters(parameters)
         
+        # FIX Bug 3 : synchroniser local_net sur les poids globaux avant chaque round
+        self.local_net.load_state_dict(self.global_net.state_dict())
+        
         # 2. Entraînement Ditto + Local DP
-        mu = config.get("proximal_mu", 0.1) # Si le serveur l'envoie via la configuration
-        self.global_net, self.local_net, dp_epsilon = train_ditto_dp(self.global_net, self.local_net, trainloader, epochs=1, mu=mu)
+        mu = config.get("proximal_mu", 0.01)
+        self.global_net, self.local_net, dp_epsilon = train_ditto_dp(self.global_net, self.local_net, self.trainloader, epochs=1, mu=mu)
         
         # 3. Sparsification des paramètres avant envoi (50% de pruning)
         params_to_return = self.get_parameters(config)
         sparsity_ratio = 0.5
         sparse_params_to_return = apply_sparsification(params_to_return, sparsity_ratio=sparsity_ratio)
         
-        # Calcul de la taille de communication compressée
-        comm_size_mb = (sum([p.nbytes for p in sparse_params_to_return]) / (1024 * 1024)) * (1.0 - sparsity_ratio)
+        # Calcul de la taille de communication
+        comm_size_mb = sum([p.nbytes for p in sparse_params_to_return]) / (1024 * 1024)
         
         _, peak_ram = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -68,7 +71,7 @@ class FlowerClient(NumPyClient):
             "estimated_energy": float(estimated_energy)
         }
         
-        return sparse_params_to_return, len(trainloader.dataset), metrics
+        return sparse_params_to_return, len(self.trainloader.dataset), metrics
     
     def evaluate(self, parameters, config): 
         start_time = time.time()
@@ -78,19 +81,21 @@ class FlowerClient(NumPyClient):
         
         # ÉVALUATION 1 : Modèle "Global"
         # Permet de voir la précision si l'on s'arrêtait à la simple agrégation du serveur.
-        _, acc_global = test(self.global_net, testloader)
+        _, acc_global = test(self.global_net, self.testloader)
         
         # ÉVALUATION 2 : Modèle Local personnalisé (Après l'entraînement Ditto)
-        _, acc_local_fp32 = test(self.local_net, testloader)
+        _, acc_local_fp32 = test(self.local_net, self.testloader)
         
         # ÉVALUATION 3 : Modèle Local Quantifié (Déploiement TinyML virtuel)
-        net_cpu = self.local_net.to('cpu')
+        # FIX Bug 2 : créer une copie CPU sans toucher local_net sur GPU
+        net_cpu = type(self.local_net)()
+        net_cpu.load_state_dict({k: v.cpu() for k, v in self.local_net.state_dict().items()})
         net_quantized = torch.quantization.quantize_dynamic(
             net_cpu, 
             {torch.nn.Linear}, 
             dtype=torch.qint8
         )
-        loss_quantized, acc_quantized = test(net_quantized, testloader, device=torch.device('cpu'))
+        loss_quantized, acc_quantized = test(net_quantized, self.testloader, device=torch.device('cpu'))
         
         eval_time = time.time() - start_time
         
@@ -108,10 +113,11 @@ class FlowerClient(NumPyClient):
             "quantized_model_size_mb": float(get_model_size(net_quantized))
         }
         
-        return float(loss_quantized), len(testloader.dataset), metrics
+        return float(loss_quantized), len(self.testloader.dataset), metrics
 
 # Entry point for Flower
 def client_fn(context: Context):
-    return FlowerClient().to_client()
+    node_id = context.node_config["partition-id"]
+    return FlowerClient(node_id=node_id).to_client()
 
 app = ClientApp(client_fn=client_fn)
