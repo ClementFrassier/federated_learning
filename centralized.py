@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import FashionMNIST
 from torchvision.transforms import Compose, Normalize, ToTensor
 import numpy as np
 from opacus import PrivacyEngine
@@ -16,8 +16,9 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Net(nn.Module):
     def __init__(self) -> None:
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        # Ajout de GroupNorm pour FedGN (compatible avec le DP d'Opacus)
+        # FashionMNIST : 1 canal en niveaux de gris
+        self.conv1 = nn.Conv2d(1, 6, 5)
+        # GroupNorm requis pour la compatibilité avec Opacus (DP)
         self.gn1 = nn.GroupNorm(num_groups=2, num_channels=6)
         
         self.pool = nn.MaxPool2d(2, 2)
@@ -25,7 +26,8 @@ class Net(nn.Module):
         self.conv2 = nn.Conv2d(6, 16, 5)
         self.gn2 = nn.GroupNorm(num_groups=4, num_channels=16)
         
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        # FashionMNIST 28x28 -> après 2x(conv5+pool2) -> 4x4
+        self.fc1 = nn.Linear(16 * 4 * 4, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 10)
 
@@ -38,14 +40,22 @@ class Net(nn.Module):
         x = self.fc3(x)
         return x
 
-# Downloads, transforms (to tensors and normalizes), and loads the CIFAR-10 datasets
-def load_data():
-    """Load CIFAR-10 (training and test set)."""
-    trf = Compose([ToTensor(), Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-    trainset = CIFAR10("./data", train=True, download=True, transform=trf)
-    testset = CIFAR10("./data", train=False, download=True, transform=trf)
-    trainloader = DataLoader(trainset, batch_size=32, shuffle=True)
-    testloader = DataLoader(testset, batch_size=32, shuffle=False)
+# Downloads, transforms (to tensors and normalizes), and loads the FashionMNIST dataset
+def load_data(node_id=0, num_clients=10, batch_size=64):
+    """Load FashionMNIST partitionné par client (simulation non-IID réaliste)."""
+    # 1 seul canal pour FashionMNIST (niveaux de gris)
+    trf = Compose([ToTensor(), Normalize((0.5,), (0.5,))])
+    trainset = FashionMNIST("./data", train=True, download=True, transform=trf)
+    testset  = FashionMNIST("./data", train=False, download=True, transform=trf)
+
+    # Partition IID simple : chaque client reçoit 1/num_clients du dataset
+    # 60000 // 10 = 6000 images par client
+    n = len(trainset) // num_clients
+    indices = list(range(node_id * n, (node_id + 1) * n))
+    client_trainset = torch.utils.data.Subset(trainset, indices)
+
+    trainloader = DataLoader(client_trainset, batch_size=batch_size, shuffle=True)
+    testloader  = DataLoader(testset, batch_size=batch_size, shuffle=False)
     return trainloader, testloader
 
 # Initializes and returns an instance of the PyTorch model (moved to CPU or GPU)

@@ -62,14 +62,16 @@ def evaluate_metrics_aggregation_fn(metrics):
     logger.eval_round += 1
     return aggregated
 
+def fit_config(server_round: int):
+    return {"proximal_mu": 0.1}
+
 def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = context.run_config.get("num-server-rounds", 3)
     config = ServerConfig(num_rounds=num_rounds)
     
-    # FedProx avec paramètre proximal mu=0.1
-    # Note: Dans une configuration réelle (SecAgg), la stratégie pourrait hériter ou utiliser une configuration de cryptographie.
     strategy = FedProx(
         proximal_mu=0.1,
+        on_fit_config_fn=fit_config,
         fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
         evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn
     )

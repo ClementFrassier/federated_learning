@@ -12,14 +12,16 @@ import numpy as np
 import time
 import tracemalloc
 
-trainloader, testloader = load_data()
-
 class FlowerClient(NumPyClient):
-    def __init__(self):
+    def __init__(self, node_id: int):
         # Un seul modèle. FedGN garde les couches de normalisation en local.
         self.net = load_model()
         self.net_before_fit = load_model()
         self.net_before_fit.load_state_dict(self.net.state_dict())
+        # Chaque client charge SA partition
+        self.trainloader, self.testloader = load_data(
+            node_id=node_id, num_clients=10, batch_size=64
+        )
 
     def get_parameters(self, config):
         # On ne renvoie pas les paramètres GroupNorm (FedGN) au serveur
@@ -50,7 +52,7 @@ class FlowerClient(NumPyClient):
         
         # 3. Entraînement FedProx + Local DP
         mu = config.get("proximal_mu", 0.1) # Si le serveur l'envoie via la configuration
-        self.net, dp_epsilon = train_fedprox_dp(self.net, global_params_dict, trainloader, epochs=1, mu=mu)
+        self.net, dp_epsilon = train_fedprox_dp(self.net, global_params_dict, self.trainloader, epochs=1, mu=mu)
         
         # On ne renvoie pas les couches de normalisation (FedGN)
         params_to_return = self.get_parameters(config)
@@ -75,7 +77,7 @@ class FlowerClient(NumPyClient):
             "estimated_energy": float(estimated_energy)
         }
         
-        return params_to_return, len(trainloader.dataset), metrics
+        return params_to_return, len(self.trainloader.dataset), metrics
     
     def evaluate(self, parameters, config): 
         start_time = time.time()
@@ -85,19 +87,21 @@ class FlowerClient(NumPyClient):
         
         # ÉVALUATION 1 : Modèle "Global" (Utilise les poids du serveur + les stats GN de l'avant-dernier round)
         # Permet de voir la précision si l'on s'arrêtait à la simple agrégation du serveur.
-        _, acc_global = test(self.net_before_fit, testloader)
+        _, acc_global = test(self.net_before_fit, self.testloader)
         
         # ÉVALUATION 2 : Modèle Local personnalisé (Après l'entraînement FedProx + FedGN)
-        _, acc_local_fp32 = test(self.net, testloader)
+        _, acc_local_fp32 = test(self.net, self.testloader)
         
         # ÉVALUATION 3 : Modèle Local Quantifié (Déploiement TinyML virtuel)
-        net_cpu = self.net.to('cpu')
+        # Copie propre sur CPU pour ne pas déplacer self.net du GPU
+        net_cpu = load_model().cpu()
+        net_cpu.load_state_dict({k: v.cpu() for k, v in self.net.state_dict().items()})
         net_quantized = torch.quantization.quantize_dynamic(
             net_cpu, 
             {torch.nn.Linear}, 
             dtype=torch.qint8
         )
-        loss_quantized, acc_quantized = test(net_quantized, testloader, device=torch.device('cpu'))
+        loss_quantized, acc_quantized = test(net_quantized, self.testloader, device=torch.device('cpu'))
         
         eval_time = time.time() - start_time
         
@@ -115,10 +119,11 @@ class FlowerClient(NumPyClient):
             "quantized_model_size_mb": float(get_model_size(net_quantized))
         }
         
-        return float(loss_quantized), len(testloader.dataset), metrics
+        return float(loss_quantized), len(self.testloader.dataset), metrics
 
 # Entry point for Flower
 def client_fn(context: Context):
-    return FlowerClient().to_client()
+    node_id = context.node_config["partition-id"]
+    return FlowerClient(node_id=node_id).to_client()
 
 app = ClientApp(client_fn=client_fn)
