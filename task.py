@@ -40,16 +40,13 @@ class Net(nn.Module):
         x = self.fc3(x)
         return x
 
-# Downloads, transforms (to tensors and normalizes), and loads the FashionMNIST dataset
 def load_data(node_id=0, num_clients=10, batch_size=64):
     """Load FashionMNIST partitionné par client (simulation non-IID réaliste)."""
-    # 1 seul canal pour FashionMNIST (niveaux de gris)
     trf = Compose([ToTensor(), Normalize((0.5,), (0.5,))])
     trainset = FashionMNIST("./data", train=True, download=True, transform=trf)
     testset  = FashionMNIST("./data", train=False, download=True, transform=trf)
 
     # Partition IID simple : chaque client reçoit 1/num_clients du dataset
-    # 60000 // 10 = 6000 images par client
     n = len(trainset) // num_clients
     indices = list(range(node_id * n, (node_id + 1) * n))
     client_trainset = torch.utils.data.Subset(trainset, indices)
@@ -58,12 +55,10 @@ def load_data(node_id=0, num_clients=10, batch_size=64):
     testloader  = DataLoader(testset, batch_size=batch_size, shuffle=False)
     return trainloader, testloader
 
-# Initializes and returns an instance of the PyTorch model (moved to CPU or GPU)
 def load_model():
     """Returns an instance of our Net model initialized and ready to run."""
     return Net().to(DEVICE)
 
-# Calcule la taille d'un modèle en Mo
 def get_model_size(model):
     param_size = 0
     for param in model.parameters():
@@ -74,7 +69,6 @@ def get_model_size(model):
     size_all_mb = (param_size + buffer_size) / 1024**2
     return size_all_mb
 
-# Trains the global model with Local Differential Privacy and FedProx penalty
 def train_fedprox_dp(net, global_params_dict, trainloader, epochs, mu=0.1):
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
@@ -121,7 +115,6 @@ def train_fedprox_dp(net, global_params_dict, trainloader, epochs, mu=0.1):
     
     return net, epsilon
 
-# Evaluates the model on the test set without tracking gradients (no_grad) for performance
 def test(net, testloader, device=None):
     """Validate the model on the test set."""
     if device is None:
@@ -139,18 +132,3 @@ def test(net, testloader, device=None):
     loss /= len(testloader.dataset)
     accuracy = correct / len(testloader.dataset)
     return loss, accuracy
-
-if __name__ == "__main__":
-    print(f"Hardware computing initialized on: {DEVICE}")
-    model = load_model()
-    trainloader, testloader = load_data()
-    
-    print("Starting FedProx+DP training...")
-    # Simulation du dictionnaire du serveur (poids initiaux)
-    global_params = {k: v.clone() for k, v in model.state_dict().items()}
-    model, _ = train_fedprox_dp(model, global_params, trainloader, epochs=2)
-    
-    print("Starting evaluation...")
-    loss, accuracy = test(model, testloader)
-    print(f"Final test loss: {loss:.4f}")
-    print(f"Final test accuracy: {accuracy:.4f}")

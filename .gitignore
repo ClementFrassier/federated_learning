@@ -7,9 +7,15 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Jupyter Notebooks (au cas où)
+# Jupyter Notebooks
 .ipynb_checkpoints/
 
-# Flower SQLite state and logs (si utilisation ultérieure)
+# Flower SQLite state and logs
 .flwr/
 state.db
+
+# Output models
+final_model.pt
+
+# Result logs
+results_fedProx+fedBN+standDP+SecAgg.csv

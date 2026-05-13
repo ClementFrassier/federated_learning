@@ -5,21 +5,30 @@ build-backend = "hatchling.build"
 [project]
 name = "pytorch-flwr"
 version = "1.0.0"
-description = "Federated Learning with Flower"
-license = {text = "MIT"}
+description = "Federated Learning with Flower v2 (FedProx+FedBN+DP+SecAgg)"
+readme = "README.md"
+requires-python = ">=3.8"
 dependencies = [
-    "flwr[simulation]>=1.8.0",
+    "flwr[simulation]>=1.13.0",
+    "flwr-datasets[vision]>=0.3.0",
+    "datasets>=2.14.0",
     "torch",
     "torchvision",
-    "opacus",
+    "opacus"
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
 [tool.flwr.app]
-publisher = "flwr"
+publisher = "flwrlabs"
 
 [tool.flwr.app.components]
-serverapp = "server:app"
-clientapp = "client:app"
+serverapp = "server_app:app"
+clientapp = "client_app:app"
 
 [tool.flwr.app.config]
-num-server-rounds = 30
+num-server-rounds = 3
+batch-size = 64
+local-epochs = 1
+proximal_mu = 0.1
