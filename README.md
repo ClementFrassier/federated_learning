@@ -1,65 +1,41 @@
-# Federated Learning with Flower, PyTorch, and TensorFlow
+# Federated Learning with Flower v2 and PyTorch
 
-This repository demonstrates how to set up a basic Federated Learning environment using the [Flower](https://flower.ai/) framework. It includes examples of centralized training (both PyTorch and TensorFlow) and a federated training setup (client/server) using PyTorch.
+This repository demonstrates how to set up a modern Federated Learning environment using the **Flower v2** architecture. It uses `ClientApp` and `ServerApp` constructs for granular task orchestration, `flwr-datasets` for dynamic data partitioning, and trains a CNN model on the **Fashion MNIST** dataset.
+
+## Architecture
+
+This project adopts the native Flower v2 structure (Mods API), preparing it for real-world deployments and advanced simulation:
+- **`task.py`**: Defines the PyTorch neural network, training/testing functions, and loads/partitions the `fashion_mnist` dataset dynamically using `flwr_datasets.FederatedDataset`.
+- **`client_app.py`**: Contains the `ClientApp` logic using `@app.train()` and `@app.evaluate()` decorators. Communicates via `Message` and `RecordDict`.
+- **`server_app.py`**: Contains the `ServerApp` logic using the `@app.main()` decorator. It dynamically reads configurations from `context.run_config` and runs the `FedAvg` strategy.
+- **`pyproject.toml`**: Defines project dependencies and Flower run configurations (number of rounds, learning rate, batch size, etc.).
 
 ## Requirements
 
-Ensure you have the following installed:
-- Python 3.8+
-- PyTorch & Torchvision
-- TensorFlow
-- Flower (`flwr`)
+Ensure you have Python 3.8+ installed. You can install the necessary dependencies using pip from the `pyproject.toml` definition:
 
-You can install the necessary dependencies with:
 ```bash
-pip install torch torchvision tensorflow flwr
+pip install -e .
 ```
 
-## Running the Code
+*Note: The primary dependencies are `flwr[simulation]`, `flwr-datasets[vision]`, `datasets`, `torch`, and `torchvision`.*
 
-### 1. Centralized Training (Baseline)
+## Running the Simulation
 
-You can run the centralized training scripts to train the model on a single machine without federated learning. This is useful as a baseline or for debugging your model architecture.
+You no longer need to launch the server and clients in separate terminal windows. Flower Simulation engine automatically orchestrates the federated learning process based on your `pyproject.toml` configuration.
 
-**For PyTorch:**
+To start the simulation, navigate to this directory and simply run:
+
 ```bash
-python centralized.py
+flwr run .
 ```
 
-**For TensorFlow:**
-```bash
-python centralized_tf.py
-```
+### Configuration
 
-### 2. Federated Learning (Client / Server)
+You can easily adjust hyperparameters without touching the Python code. Open `pyproject.toml` and modify the `[tool.flwr.app.config]` section to change:
+- `num-server-rounds`: The total number of federated rounds.
+- `batch-size`: The batch size used for local client training.
+- `local-epochs`: Number of local epochs clients train for each round.
+- `learning-rate`: The learning rate used by the optimizer.
 
-To run the federated learning simulation, you need to start the server and then start one or multiple clients.
-
-**Step 1: Start the server**
-Open a terminal and run the server script:
-```bash
-python server.py
-```
-*The server will start on `0.0.0.0:8080` and wait for clients to connect.*
-
-**Step 2: Start the clients**
-Open additional terminal windows (one for each client you want to simulate) and run the client script:
-```bash
-python client.py
-```
-*By default, the server configuration (`num_rounds=3`) and strategy (`FedAvg`) will coordinate the training across the connected clients. You may need to run at least two clients depending on your Flower version and FedAvg defaults.*
-
-## Switching between PyTorch and TensorFlow
-
-The PyTorch and TensorFlow centralized files (`centralized.py` and `centralized_tf.py`) share the exact same function signatures (`load_data`, `load_model`, `train`, `test`).
-
-If you wish to switch your federated client to use TensorFlow instead of PyTorch, you can simply change the import statement in `client.py` from:
-```python
-from centralized import load_data, load_model, train, test
-```
-to:
-```python
-from centralized_tf import load_data, load_model, train, test
-```
-
-*(Note: You will also need to update `get_parameters` and `set_parameters` in `client.py` to handle TensorFlow weights instead of PyTorch tensors, as `flwr` provides different weight extraction methods for Keras models. In Keras, you can generally use `model.get_weights()` and `model.set_weights()`).*
+After the simulation finishes, the global model weights are saved in the current directory as `final_model.pt`.

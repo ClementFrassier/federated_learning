@@ -13,3 +13,6 @@ __pycache__/
 # Flower SQLite state and logs (si utilisation ultérieure)
 .flwr/
 state.db
+
+# Output models
+final_model.pt

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pytorch-flwr"
+version = "1.0.0"
+description = "Federated Learning with PyTorch and Flower"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "flwr[simulation]>=1.13.0",
+    "flwr-datasets[vision]>=0.3.0",
+    "datasets>=2.14.0",
+    "torch",
+    "torchvision",
+    "tensorflow"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.flwr.app]
+publisher = "flwrlabs"
+
+[tool.flwr.app.components]
+serverapp = "server_app:app"
+clientapp = "client_app:app"
+
+[tool.flwr.app.config]
+num-server-rounds = 3
+fraction-evaluate = 1.0
+learning-rate = 0.01
+local-epochs = 1
+batch-size = 32
