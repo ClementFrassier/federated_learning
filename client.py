@@ -23,17 +23,17 @@ class FlowerClient(NumPyClient):
         self.trainloader, self.testloader = load_data(
             node_id=node_id,
             num_clients=10,
-            batch_size=128
+            batch_size=32
         )
         
         from opacus import PrivacyEngine
         self.privacy_engine = PrivacyEngine()
-        global_optimizer = torch.optim.SGD(self.global_net.parameters(), lr=0.001, momentum=0.9)
+        global_optimizer = torch.optim.SGD(self.global_net.parameters(), lr=0.01, momentum=0.9)
         self.global_net_dp, self.global_optimizer_dp, self.trainloader_dp = self.privacy_engine.make_private(
             module=self.global_net,
             optimizer=global_optimizer,
             data_loader=self.trainloader,
-            noise_multiplier=0.5,
+            noise_multiplier=1.8,
             max_grad_norm=1.0,
         )
         self.total_epsilon = 0.0

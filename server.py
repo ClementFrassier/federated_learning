@@ -65,7 +65,7 @@ def evaluate_metrics_aggregation_fn(metrics):
     return aggregated
 
 def fit_config(server_round: int):
-    return {"proximal_mu": 0.01}
+    return {"proximal_mu": 0.1, "local_epochs": 1}
 
 def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = context.run_config.get("num-server-rounds", 30)
