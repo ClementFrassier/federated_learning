@@ -1,65 +1,69 @@
-# Federated Learning with Flower, PyTorch, and TensorFlow
+# Federated Learning — Ditto + Quantisation + Local-DP + Sparse
 
-This repository demonstrates how to set up a basic Federated Learning environment using the [Flower](https://flower.ai/) framework. It includes examples of centralized training (both PyTorch and TensorFlow) and a federated training setup (client/server) using PyTorch.
+A production-ready Federated Learning simulation built on **Flower v2** (`ServerApp` / `ClientApp` architecture), trained on **FashionMNIST**.
+
+## Architecture
+
+This project implements a research-grade combination of four complementary techniques:
+
+| Component | Role |
+|---|---|
+| **Ditto** | Two-model personalisation (global DP model + local proximal model) |
+| **Local Differential Privacy** | Opacus `PrivacyEngine` wraps the global model with DP-SGD |
+| **Sparse Upload** | 50 % magnitude pruning applied to global weights before uplink |
+| **INT8 Quantisation** | Dynamic `qint8` quantisation of the local model for TinyML evaluation |
+
+### Files
+
+| File | Description |
+|---|---|
+| `task.py` | `Net` model (GroupNorm CNN), `load_data`, `train_ditto_dp`, `test`, `apply_sparsification`, `get_model_size` |
+| `client_app.py` | `ClientApp` via `NumPyClient` — full Ditto training loop + KPI metrics |
+| `server_app.py` | `ServerApp` — FedAvg aggregation + per-round config + CSV KPI logger |
+| `pyproject.toml` | Dependencies and Flower run configuration |
 
 ## Requirements
 
-Ensure you have the following installed:
-- Python 3.8+
-- PyTorch & Torchvision
-- TensorFlow
-- Flower (`flwr`)
+Python 3.8+ required. Install all dependencies via:
 
-You can install the necessary dependencies with:
 ```bash
-pip install torch torchvision tensorflow flwr
+pip install -e .
 ```
 
-## Running the Code
+Core dependencies: `flwr[simulation]>=1.13.0`, `torch`, `torchvision`, `opacus`, `numpy`.
 
-### 1. Centralized Training (Baseline)
+## Running the Simulation
 
-You can run the centralized training scripts to train the model on a single machine without federated learning. This is useful as a baseline or for debugging your model architecture.
+A single command launches the full simulation — no need for separate terminal windows:
 
-**For PyTorch:**
 ```bash
-python centralized.py
+flwr run .
 ```
 
-**For TensorFlow:**
-```bash
-python centralized_tf.py
-```
+### Configuration
 
-### 2. Federated Learning (Client / Server)
+Edit `[tool.flwr.app.config]` in `pyproject.toml` to change hyperparameters without touching Python code:
 
-To run the federated learning simulation, you need to start the server and then start one or multiple clients.
+| Key | Default | Description |
+|---|---|---|
+| `num-server-rounds` | `30` | Number of federated rounds |
 
-**Step 1: Start the server**
-Open a terminal and run the server script:
-```bash
-python server.py
-```
-*The server will start on `0.0.0.0:8080` and wait for clients to connect.*
+Per-round client hyperparameters (`proximal_mu`, `local_epochs`) are set in `server_app.py → fit_config()`.
 
-**Step 2: Start the clients**
-Open additional terminal windows (one for each client you want to simulate) and run the client script:
-```bash
-python client.py
-```
-*By default, the server configuration (`num_rounds=3`) and strategy (`FedAvg`) will coordinate the training across the connected clients. You may need to run at least two clients depending on your Flower version and FedAvg defaults.*
+## KPI Output
 
-## Switching between PyTorch and TensorFlow
+All metrics are appended round-by-round to `results_ditto-quant-ldp-sparse.csv`:
 
-The PyTorch and TensorFlow centralized files (`centralized.py` and `centralized_tf.py`) share the exact same function signatures (`load_data`, `load_model`, `train`, `test`).
+**FIT metrics** (per round, averaged across clients):
+- `fit_time`, `peak_ram_mb`, `comm_size_mb`, `model_size_mb`
+- `dp_epsilon` — cumulative DP privacy budget consumed
+- `estimated_energy` — energy proxy (α·time + β·comm_size)
 
-If you wish to switch your federated client to use TensorFlow instead of PyTorch, you can simply change the import statement in `client.py` from:
-```python
-from centralized import load_data, load_model, train, test
-```
-to:
-```python
-from centralized_tf import load_data, load_model, train, test
-```
-
-*(Note: You will also need to update `get_parameters` and `set_parameters` in `client.py` to handle TensorFlow weights instead of PyTorch tensors, as `flwr` provides different weight extraction methods for Keras models. In Keras, you can generally use `model.get_weights()` and `model.set_weights()`).*
+**EVAL metrics** (per round, aggregated):
+- `accuracy` — INT8 quantised model (production target)
+- `acc_global` — global model (server aggregation baseline)
+- `acc_local_fp32` — personalised FP32 model
+- `local_vs_global_gap` — personalisation gain from Ditto
+- `quantization_error` — accuracy loss from INT8 quantisation
+- `accuracy_stddev` — cross-client fairness indicator
+- `quantized_model_size_mb`, `eval_time`, `loss`

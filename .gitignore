@@ -1,15 +1,21 @@
-# Dataset
-data/
-
-# Python cache
+# ── Python cache ──────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.pdb
 
-# Jupyter Notebooks (au cas où)
+# ── Jupyter ────────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 
-# Flower SQLite state and logs (si utilisation ultérieure)
+# ── FashionMNIST dataset (downloaded at runtime) ───────────────────────────────
+data/
+
+# ── Flower internal state and simulation logs ──────────────────────────────────
 .flwr/
 state.db
+
+# ── Training outputs ───────────────────────────────────────────────────────────
+final_model.pt
+results_ditto-quant-ldp-sparse.csv
+results_fedProx+fedBN+standDP+SecAgg.csv
