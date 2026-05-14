@@ -1,20 +1,24 @@
-# Dataset
-data/
-
-# Python cache
+# ── Python cache ──────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.pdb
 
-# Jupyter Notebooks (au cas où)
+# ── Jupyter ────────────────────────────────────────────────────────────────────
 .ipynb_checkpoints/
 
-# Flower SQLite state and logs (si utilisation ultérieure)
+# ── FashionMNIST dataset (downloaded at runtime by task.py) ───────────────────
+data/
+
+# ── Flower internal state and simulation artefacts ────────────────────────────
 .flwr/
 state.db
 
-# Résultats de performances et métriques
-KPI.md
-results.csv
-.resultsfeat/
+# ── Saved models ──────────────────────────────────────────────────────────────
+*.pt
+*.pth
+
+# ── Experiment results (generated at runtime) ─────────────────────────────────
+resultsfeat/
+results_*.csv

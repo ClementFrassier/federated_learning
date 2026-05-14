@@ -5,21 +5,83 @@ build-backend = "hatchling.build"
 [project]
 name = "pytorch-flwr"
 version = "1.0.0"
-description = "Federated Learning with Flower"
-license = "MIT"
+description = "Federated Learning — Ditto + FedYogi + Stepwise-DP + SecAgg + Sparse"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
 dependencies = [
-    "flwr[simulation]>=1.9.0",
+    # 1.13+ required for FedYogi + simulation.
+    # 1.21+ introduces import deprecations (flwr.client → flwr.clientapp, etc.)
+    # and the Message API. NumPyClient still works but will show deprecation warnings.
+    "flwr[simulation]>=1.13.0",
     "torch",
     "torchvision",
-    "opacus"
+    "opacus",
+    "numpy",
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
 
 [tool.flwr.app]
 publisher = "flwrlabs"
 
 [tool.flwr.app.components]
-serverapp = "server:app"
-clientapp = "client:app"
+serverapp = "server_app:app"
+clientapp = "client_app:app"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Experiment hyperparameters
+# Edit this section only — no Python code changes needed between experiments.
+# ──────────────────────────────────────────────────────────────────────────────
 [tool.flwr.app.config]
-num-server-rounds = 30
+
+# ── Federation ────────────────────────────────────────────────────────────────
+num-server-rounds = 3         # Total number of FL rounds
+
+# ── Local training (client-side) ──────────────────────────────────────────────
+local-epochs    = 1           # Local epochs per client per round
+batch-size      = 16          # Mini-batch size (reduced to limit per-actor RAM)
+lr-global       = 0.01        # SGD lr for the global (DP) model
+lr-local        = 0.001       # SGD lr for the local (personalised) model
+momentum        = 0.9         # SGD momentum (global and local optimisers)
+
+# ── Ditto personalisation ─────────────────────────────────────────────────────
+proximal-mu     = 0.01        # Proximal penalty weight µ (Ditto local objective)
+
+# ── Stepwise-DP (Opacus) ──────────────────────────────────────────────────────
+noise-multiplier = 1.8        # DP-SGD noise σ  (↑ = more private, slower learning)
+max-grad-norm    = 1.0        # Gradient clipping norm C
+dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
+
+# ── Sparse uplink (magnitude pruning) ─────────────────────────────────────────
+sparsity-ratio   = 0.5        # Fraction of weights zeroed before sending to server
+
+# ── FedYogi server optimiser ──────────────────────────────────────────────────
+fedyogi-eta      = 0.01       # Server-side learning rate η
+fedyogi-eta-l    = 0.01       # Client-side learning rate ηₗ (used internally)
+fedyogi-beta-1   = 0.9        # First moment decay β₁
+fedyogi-beta-2   = 0.99       # Second moment decay β₂
+fedyogi-tau      = 1e-3       # Adaptivity parameter τ (prevents division by zero)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Simulation federation (Flower v2 latest — options. prefix is deprecated)
+#
+# num-supernodes and client-resources are now passed via --federation-config:
+#
+#   Standard run (10 clients, sequential):
+#     flwr run . local-simulation
+#
+#   Custom parallelism (limit concurrent actors to avoid OOM):
+#     flwr run . local-simulation \
+#       --federation-config '{"num-supernodes":10,"backend":{"client_resources":{"num_cpus":4,"num_gpus":0}}}'
+#
+# Permanently store simulation defaults with:
+#     flwr federation simulation-config local-simulation \
+#       '{"num-supernodes":10,"backend":{"client_resources":{"num_cpus":4,"num_gpus":0}}}'
+# ──────────────────────────────────────────────────────────────────────────────
+[tool.flwr.federations]
+default = "local-simulation"
+
+[tool.flwr.federations.local-simulation]
+num-supernodes = 10
