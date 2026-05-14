@@ -14,7 +14,7 @@ This project strictly preserves your original complex logic (FedProx, Opacus Loc
 
 ## Requirements
 
-Ensure you have Python 3.8+ installed.
+Python **3.10+** required (Flower 1.26+ dropped support for 3.8/3.9). Install all dependencies via:
 
 ```bash
 pip install -e .

@@ -73,18 +73,22 @@ app = ServerApp()
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
-    num_rounds = context.run_config.get("num-server-rounds", 3)
-    
-    # Init global model
-    global_model = Net()
-    # Ensure only non-gn parameters are tracked by the server
+    num_rounds  = int(context.run_config.get("num-server-rounds", 3))
+    # Read proximal_mu from run_config so it stays consistent with client_app.py.
+    # The value passed to FedProx() here is used by the server-side strategy;
+    # the client reads the same key from context.run_config independently.
+    proximal_mu = float(context.run_config.get("proximal_mu", 0.1))
+
+    # Initialise global model — server only tracks non-GN layers (FedBN)
+    global_model  = Net()
     global_params = {k: v.cpu() for k, v in global_model.state_dict().items() if "gn" not in k}
-    arrays = ArrayRecord(global_params)
-    
+    # ✅ Correct ArrayRecord constructor — must use the torch_state_dict kwarg
+    arrays = ArrayRecord(torch_state_dict=global_params)
+
     strategy = FedProx(
-        proximal_mu=0.1,
+        proximal_mu=proximal_mu,
         train_metrics_aggr_fn=train_metrics_aggr_fn,
-        evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn
+        evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn,
     )
     
     result = strategy.start(

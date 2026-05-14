@@ -5,16 +5,18 @@ build-backend = "hatchling.build"
 [project]
 name = "pytorch-flwr"
 version = "1.0.0"
-description = "Federated Learning with Flower v2 (FedProx+FedBN+DP+SecAgg)"
+description = "Federated Learning — FedProx + FedBN + Standard-DP + SecAgg (simulated)"
 readme = "README.md"
-requires-python = ">=3.8"
+# Flower 1.26+ requires Python >=3.10
+requires-python = ">=3.10"
 dependencies = [
-    "flwr[simulation]>=1.13.0",
-    "flwr-datasets[vision]>=0.3.0",
-    "datasets>=2.14.0",
+    # Message API (flwr.clientapp, flwr.serverapp) available since 1.21.
+    # FedProx via flwr.serverapp.strategy available since 1.21+.
+    "flwr[simulation]>=1.21.0",
     "torch",
     "torchvision",
-    "opacus"
+    "opacus",
+    "numpy",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -27,8 +29,24 @@ publisher = "flwrlabs"
 serverapp = "server_app:app"
 clientapp = "client_app:app"
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Experiment hyperparameters — edit here, no Python code changes needed
+# ──────────────────────────────────────────────────────────────────────────────
 [tool.flwr.app.config]
-num-server-rounds = 3
-batch-size = 64
-local-epochs = 1
-proximal_mu = 0.1
+
+# ── Federation ────────────────────────────────────────────────────────────────
+num-server-rounds = 3         # Total FL rounds
+
+# ── Local training ────────────────────────────────────────────────────────────
+local-epochs  = 1             # Local epochs per round per client
+batch-size    = 64            # Mini-batch size
+
+# ── FedProx ───────────────────────────────────────────────────────────────────
+proximal_mu   = 0.1           # Proximal penalty weight µ (FedProx objective)
+
+# ── Standard-DP (Opacus) ─────────────────────────────────────────────────────
+# These are set once at client init (PrivacyEngine is persistent across rounds).
+# Changing them mid-experiment would require recreating the engine (resets ε).
+noise-multiplier = 0.5        # DP-SGD noise σ  (↑ = more private, slower learning)
+max-grad-norm    = 1.0        # Gradient clipping norm C
+dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
