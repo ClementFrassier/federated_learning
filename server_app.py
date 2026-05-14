@@ -91,31 +91,29 @@ def evaluate_metrics_aggregation_fn(metrics):
 # ── ServerApp entry point ─────────────────────────────────────────────────────
 def server_fn(context: Context) -> ServerAppComponents:
     # Read all hyperparameters from pyproject.toml [tool.flwr.app.config]
-    num_rounds       = context.run_config.get("num-server-rounds",  30)
-    local_epochs     = context.run_config.get("local-epochs",        1)
-    proximal_mu      = context.run_config.get("proximal-mu",         0.05)
-    lr               = context.run_config.get("learning-rate",       0.001)
-    momentum         = context.run_config.get("momentum",            0.9)
-    noise_multiplier = context.run_config.get("noise-multiplier",    1.5)
-    max_grad_norm    = context.run_config.get("max-grad-norm",       1.0)
-    dp_delta         = context.run_config.get("dp-delta",            1e-5)
-    sparsity_ratio   = context.run_config.get("sparsity-ratio",      0.5)
-    batch_size       = context.run_config.get("batch-size",          32)
+    num_rounds       = int(context.run_config.get("num-server-rounds",  30))
+    local_epochs     = int(context.run_config.get("local-epochs",        1))
+    proximal_mu      = float(context.run_config.get("proximal-mu",       0.05))
+    lr_local         = float(context.run_config.get("lr-local",          0.001))
+    momentum_local   = float(context.run_config.get("momentum",          0.9))
+    noise_multiplier = float(context.run_config.get("noise-multiplier",  1.5))
+    max_grad_norm    = float(context.run_config.get("max-grad-norm",     1.0))
+    dp_delta         = float(context.run_config.get("dp-delta",          1e-5))
+    sparsity_ratio   = float(context.run_config.get("sparsity-ratio",    0.5))
+    batch_size       = int(context.run_config.get("batch-size",          16))
 
     config = ServerConfig(num_rounds=num_rounds)
 
-    # Bundle all client-side hyperparams into the per-round config dict
+    # Bundle all client-side hyperparams into the per-round config dict.
+    # Key names here must match exactly what client_app.py reads via config.get()
     def fit_config(server_round: int) -> dict:
         return {
-            "local_epochs":      local_epochs,
-            "proximal_mu":       proximal_mu,
-            "lr":                lr,
-            "momentum":          momentum,
-            "noise_multiplier":  noise_multiplier,
-            "max_grad_norm":     max_grad_norm,
-            "dp_delta":          dp_delta,
-            "sparsity_ratio":    sparsity_ratio,
-            "batch_size":        batch_size,
+            "local_epochs":    local_epochs,
+            "proximal_mu":     proximal_mu,
+            "lr_local":        lr_local,       # matches config.get("lr_local") in client
+            "momentum_local":  momentum_local, # matches config.get("momentum_local")
+            "dp_delta":        dp_delta,
+            "sparsity_ratio":  sparsity_ratio,
         }
 
     # FedAvg aggregates the global model weights (Ditto server-side)

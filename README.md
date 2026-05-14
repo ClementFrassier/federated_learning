@@ -24,7 +24,7 @@ This project implements a research-grade combination of four complementary techn
 
 ## Requirements
 
-Python 3.8+ required. Install all dependencies via:
+Python 3.10+ required (Flower 1.26+ dropped support for 3.8/3.9). Install all dependencies via:
 
 ```bash
 pip install -e .

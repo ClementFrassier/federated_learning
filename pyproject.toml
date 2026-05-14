@@ -7,9 +7,13 @@ name = "pytorch-flwr"
 version = "1.0.0"
 description = "Federated Learning — Ditto + Quantisation + Local-DP + Sparse"
 readme = "README.md"
-requires-python = ">=3.8"
+# Flower 1.26+ requires Python >=3.10
+requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
+    # 1.13+ required for FedYogi + simulation engine.
+    # 1.21+ introduces import deprecations (flwr.client → flwr.clientapp, etc.)
+    # and the Message API. NumPyClient + ServerAppComponents remain stable through 1.29.
     "flwr[simulation]>=1.13.0",
     "torch",
     "torchvision",
@@ -32,53 +36,51 @@ clientapp = "client_app:app"
 # ──────────────────────────────────────────────────────────────────────────────
 [tool.flwr.app.config]
 
-# Federation
-num-server-rounds = 3      # Total number of FL rounds
-# Local training
-local-epochs   = 1          # Local epochs per round per client
-batch-size     = 16         # Mini-batch size — reduced to limit per-actor RAM usage
-learning-rate  = 0.001      # SGD learning rate (global & local optimisers)
-momentum       = 0.9        # SGD momentum (global & local optimisers)
+# ── Federation ────────────────────────────────────────────────────────────────
+num-server-rounds = 3         # Total number of FL rounds
 
-# Ditto personalisation
-proximal-mu    = 0.05       # Proximal penalty weight µ (Ditto local objective)
+# ── Local training (client-side) ──────────────────────────────────────────────
+local-epochs   = 1            # Local epochs per round per client
+batch-size     = 16           # Mini-batch size (reduced to limit per-actor RAM)
+lr-global      = 0.001        # SGD lr — global (DP) model (set at __init__)
+lr-local       = 0.001        # SGD lr — local (personalised) model (per round)
+momentum       = 0.9          # SGD momentum
 
-# Local Differential Privacy (Opacus)
-noise-multiplier = 1.5      # DP-SGD noise multiplier σ (↑ = more private, less accurate)
-max-grad-norm    = 1.0      # DP-SGD gradient clipping norm C
-dp-delta         = 1e-5     # DP delta δ used to report ε (keep ≤ 1/n_train)
+# ── Ditto personalisation ─────────────────────────────────────────────────────
+proximal-mu    = 0.05         # Proximal penalty weight µ (Ditto local objective)
 
-# Sparse uplink (magnitude pruning)
-sparsity-ratio = 0.5        # Fraction of weights zeroed before sending to server
+# ── Local Differential Privacy (Opacus) ──────────────────────────────────────
+# noise-multiplier and max-grad-norm are set ONCE at client initialisation.
+# Changing them mid-experiment would require recreating the PrivacyEngine
+# (which resets ε). Keep them stable across a full experiment run.
+noise-multiplier = 1.5        # DP-SGD noise σ  (↑ = more private, slower learning)
+max-grad-norm    = 1.0        # Gradient clipping norm C
+dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
+
+# ── Sparse uplink (magnitude pruning) ─────────────────────────────────────────
+sparsity-ratio = 0.5          # Fraction of weights zeroed before sending to server
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Simulation settings
+# Simulation federation — NOT configured here (Flower 1.26+)
+#
+# The [tool.flwr.federations] section has been removed. Flower now manages
+# federation / SuperLink connection settings in ~/.flwr/config.toml.
+# Keeping it here causes a migration error on `flwr run`.
+#
+# To control num-supernodes and client resources, use the CLI:
+#
+#   flwr run . --stream
+#     (uses Flower's default local simulation)
+#
+#   Override at runtime:
+#     flwr run . --stream \
+#       --federation-config "num-supernodes=10 client-resources-num-cpus=4"
+#
+#   Save permanently (run once):
+#     flwr federation simulation-config \
+#       "num-supernodes=10 client-resources-num-cpus=4"
+#
+# OOM tip: Ditto holds 3 models/actor (~0.5 GB each).
+# client-resources-num-cpus=4 limits concurrent actors to 2 on an 8-core
+# machine → peak RAM ~1–2 GB instead of 4+ GB.
 # ──────────────────────────────────────────────────────────────────────────────
-
-
-#######################################################################
-# CONFIGURATION MIGRATION NOTICE:
-#
-# What was previously called "federation config" for SuperLink
-# connections in pyproject.toml has been renamed and moved.
-#
-# These settings are now **SuperLink connection configuration**
-# and are defined in the Flower configuration file.
-#
-# The entries below are commented out intentionally and are kept
-# only as a migration reference.
-#
-# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
-#######################################################################
-
-# [tool.flwr.federations]
-# default = "local-simulation"
-
-# [tool.flwr.federations.local-simulation]
-# options.num-supernodes = 10  # Number of simulated clients
-
-# # Ditto keeps 3 models per client (~0.5 GB/actor) → limit concurrent actors.
-# # Higher num-cpus = fewer actors running simultaneously = less peak RAM.
-# # With num-cpus = 4 on an 8-core machine: max 2 clients run in parallel.
-# options.backend.client-resources.num-cpus = 4
-# options.backend.client-resources.num-gpus = 0.0
