@@ -1,9 +1,11 @@
 import csv
 import os
 
-from flwr.common import Context, Metrics
-from flwr.server import ServerApp, ServerAppComponents, ServerConfig
-from flwr.server.strategy import FedAvg
+from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
+from flwr.serverapp import Grid, ServerApp
+from flwr.serverapp.strategy import FedAvg
+
+from task import Net
 
 # ── CSV logger ────────────────────────────────────────────────────────────────
 CSV_FILE = "results_ditto-quant-ldp-sparse.csv"
@@ -34,15 +36,16 @@ def write_to_csv(round_num: int, phase: str, metrics: dict) -> None:
 
 
 # ── Metric aggregation functions ──────────────────────────────────────────────
-def fit_metrics_aggregation_fn(metrics):
+def fit_metrics_aggregation_fn(record_dicts: list[RecordDict], weighted_by: str) -> MetricRecord:
     """Average all FIT metrics across clients and log to CSV."""
     aggregated: dict = {}
-    if not metrics:
-        return aggregated
+    if not record_dicts:
+        return MetricRecord(aggregated)
 
-    for metric_name in metrics[0][1].keys():
+    metrics_list = [rd["metrics"] for rd in record_dicts]
+    for metric_name in metrics_list[0].keys():
         aggregated[metric_name] = (
-            sum(m[metric_name] for _, m in metrics) / len(metrics)
+            sum(m[metric_name] for m in metrics_list) / len(metrics_list)
         )
 
     print(f"\n--- FIT KPIs (Round {logger.fit_round}) ---")
@@ -51,32 +54,34 @@ def fit_metrics_aggregation_fn(metrics):
 
     write_to_csv(logger.fit_round, "FIT", aggregated)
     logger.fit_round += 1
-    return aggregated
+    return MetricRecord(aggregated)
 
 
-def evaluate_metrics_aggregation_fn(metrics):
+def evaluate_metrics_aggregation_fn(record_dicts: list[RecordDict], weighted_by: str) -> MetricRecord:
     """Aggregate EVAL metrics, compute weighted accuracy and stddev, log to CSV."""
     aggregated: dict = {}
-    if not metrics:
-        return aggregated
+    if not record_dicts:
+        return MetricRecord(aggregated)
+
+    metrics_list = [rd["metrics"] for rd in record_dicts]
 
     # Weighted average for accuracy
-    total_examples = sum(n for n, _ in metrics)
+    total_examples = sum(m["num-examples"] for m in metrics_list)
     aggregated["accuracy"] = (
-        sum(n * m["accuracy"] for n, m in metrics) / total_examples
+        sum(m["num-examples"] * m["accuracy"] for m in metrics_list) / total_examples
     )
 
     # Accuracy standard deviation across clients (fairness indicator)
-    acc_list  = [m["accuracy"] for _, m in metrics]
+    acc_list  = [m["accuracy"] for m in metrics_list]
     mean_acc  = sum(acc_list) / len(acc_list)
     variance  = sum((a - mean_acc) ** 2 for a in acc_list) / len(acc_list)
     aggregated["accuracy_stddev"] = variance ** 0.5
 
     # Simple mean for every other metric
-    for metric_name in metrics[0][1].keys():
-        if metric_name != "accuracy":
+    for metric_name in metrics_list[0].keys():
+        if metric_name not in ("accuracy", "num-examples"):
             aggregated[metric_name] = (
-                sum(m[metric_name] for _, m in metrics) / len(metrics)
+                sum(m[metric_name] for m in metrics_list) / len(metrics_list)
             )
 
     print(f"\n--- EVAL KPIs (Round {logger.eval_round}) ---")
@@ -85,45 +90,54 @@ def evaluate_metrics_aggregation_fn(metrics):
 
     write_to_csv(logger.eval_round, "EVAL", aggregated)
     logger.eval_round += 1
-    return aggregated
+    return MetricRecord(aggregated)
 
 
-# ── ServerApp entry point ─────────────────────────────────────────────────────
-def server_fn(context: Context) -> ServerAppComponents:
+# ── ServerApp ─────────────────────────────────────────────────────────────────
+app = ServerApp()
+
+
+@app.main()
+def main(grid: Grid, context: Context) -> None:
     # Read all hyperparameters from pyproject.toml [tool.flwr.app.config]
     num_rounds       = int(context.run_config.get("num-server-rounds",  30))
     local_epochs     = int(context.run_config.get("local-epochs",        1))
     proximal_mu      = float(context.run_config.get("proximal-mu",       0.05))
     lr_local         = float(context.run_config.get("lr-local",          0.001))
     momentum_local   = float(context.run_config.get("momentum",          0.9))
-    noise_multiplier = float(context.run_config.get("noise-multiplier",  1.5))
-    max_grad_norm    = float(context.run_config.get("max-grad-norm",     1.0))
     dp_delta         = float(context.run_config.get("dp-delta",          1e-5))
     sparsity_ratio   = float(context.run_config.get("sparsity-ratio",    0.5))
-    batch_size       = int(context.run_config.get("batch-size",          16))
 
-    config = ServerConfig(num_rounds=num_rounds)
+    # Initialise global model
+    global_model = Net()
+    arrays = ArrayRecord(torch_state_dict=global_model.state_dict())
 
-    # Bundle all client-side hyperparams into the per-round config dict.
-    # Key names here must match exactly what client_app.py reads via config.get()
-    def fit_config(server_round: int) -> dict:
-        return {
+    # Build the training config to send to clients
+    def fit_config(server_round: int) -> ConfigRecord:
+        return ConfigRecord({
             "local_epochs":    local_epochs,
             "proximal_mu":     proximal_mu,
-            "lr_local":        lr_local,       # matches config.get("lr_local") in client
-            "momentum_local":  momentum_local, # matches config.get("momentum_local")
+            "lr_local":        lr_local,
+            "momentum_local":  momentum_local,
             "dp_delta":        dp_delta,
             "sparsity_ratio":  sparsity_ratio,
-        }
+        })
 
-    # FedAvg aggregates the global model weights (Ditto server-side)
+    # FedAvg strategy (Ditto uses FedAvg on the server side)
     strategy = FedAvg(
-        on_fit_config_fn=fit_config,
-        fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
-        evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
+        train_metrics_aggr_fn=fit_metrics_aggregation_fn,
+        evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn,
     )
 
-    return ServerAppComponents(strategy=strategy, config=config)
-
-
-app = ServerApp(server_fn=server_fn)
+    # Start the simulation loop
+    result = strategy.start(
+        grid=grid,
+        initial_arrays=arrays,
+        train_config=fit_config(1), # Passed directly; Flower will reuse it or you can pass a dict of configs per round if needed
+        num_rounds=num_rounds,
+    )
+    
+    # Save the final global model
+    print("\nSaving final model to disk...")
+    import torch
+    torch.save(result.arrays.to_torch_state_dict(), "final_model.pt")
