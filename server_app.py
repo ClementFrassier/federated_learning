@@ -1,14 +1,9 @@
 import csv
 import os
 
-import numpy as np
-
-# NOTE: As of Flower 1.21, these imports are deprecated.
-# The new paths are: flwr.serverapp, flwr.serverapp.strategy, flwr.app
-# Migration to the Message API is tracked separately.
-from flwr.common import Context, ndarrays_to_parameters
-from flwr.server import ServerApp, ServerAppComponents, ServerConfig
-from flwr.server.strategy import FedYogi
+from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
+from flwr.serverapp import Grid, ServerApp
+from flwr.serverapp.strategy import FedYogi
 
 from task import load_model
 
@@ -45,15 +40,16 @@ def write_to_csv(round_num: int, phase: str, metrics: dict) -> None:
 
 
 # ── Metric aggregation ────────────────────────────────────────────────────────
-def fit_metrics_aggregation_fn(metrics):
+def fit_metrics_aggregation_fn(record_dicts: list[RecordDict], weighted_by: str) -> MetricRecord:
     """Average all FIT metrics across clients and log to CSV."""
     aggregated: dict = {}
-    if not metrics:
-        return aggregated
+    if not record_dicts:
+        return MetricRecord(aggregated)
 
-    for metric_name in metrics[0][1].keys():
+    metrics_list = [rd.metric_records["metrics"] for rd in record_dicts]
+    for metric_name in metrics_list[0].keys():
         aggregated[metric_name] = (
-            sum(m[metric_name] for _, m in metrics) / len(metrics)
+            sum(m[metric_name] for m in metrics_list) / len(metrics_list)
         )
 
     print(f"\n--- FIT KPIs (Round {logger.fit_round}) ---")
@@ -62,32 +58,34 @@ def fit_metrics_aggregation_fn(metrics):
 
     write_to_csv(logger.fit_round, "FIT", aggregated)
     logger.fit_round += 1
-    return aggregated
+    return MetricRecord(aggregated)
 
 
-def evaluate_metrics_aggregation_fn(metrics):
+def evaluate_metrics_aggregation_fn(record_dicts: list[RecordDict], weighted_by: str) -> MetricRecord:
     """Aggregate EVAL metrics with weighted accuracy + stddev, log to CSV."""
     aggregated: dict = {}
-    if not metrics:
-        return aggregated
+    if not record_dicts:
+        return MetricRecord(aggregated)
+
+    metrics_list = [rd.metric_records["metrics"] for rd in record_dicts]
 
     # Weighted accuracy
-    total_examples     = sum(n for n, _ in metrics)
+    total_examples = sum(m["num-examples"] for m in metrics_list)
     aggregated["accuracy"] = (
-        sum(n * m["accuracy"] for n, m in metrics) / total_examples
+        sum(m["num-examples"] * m["accuracy"] for m in metrics_list) / total_examples
     )
 
     # Cross-client accuracy std-dev (fairness indicator)
-    acc_list = [m["accuracy"] for _, m in metrics]
+    acc_list = [m["accuracy"] for m in metrics_list]
     mean_acc = sum(acc_list) / len(acc_list)
     variance = sum((a - mean_acc) ** 2 for a in acc_list) / len(acc_list)
     aggregated["accuracy_stddev"] = variance ** 0.5
 
     # Simple mean for every other metric
-    for metric_name in metrics[0][1].keys():
-        if metric_name != "accuracy":
+    for metric_name in metrics_list[0].keys():
+        if metric_name not in ("accuracy", "num-examples"):
             aggregated[metric_name] = (
-                sum(m[metric_name] for _, m in metrics) / len(metrics)
+                sum(m[metric_name] for m in metrics_list) / len(metrics_list)
             )
 
     print(f"\n--- EVAL KPIs (Round {logger.eval_round}) ---")
@@ -96,12 +94,14 @@ def evaluate_metrics_aggregation_fn(metrics):
 
     write_to_csv(logger.eval_round, "EVAL", aggregated)
     logger.eval_round += 1
-    return aggregated
+    return MetricRecord(aggregated)
 
 
 # ── ServerApp entry point ─────────────────────────────────────────────────────
-def server_fn(context: Context) -> ServerAppComponents:
-    """Build the FedYogi strategy and server config from pyproject.toml values."""
+app = ServerApp()
+
+@app.main()
+def main(grid: Grid, context: Context) -> None:
     rc = context.run_config
 
     num_rounds     = int(rc.get("num-server-rounds",  30))
@@ -111,6 +111,7 @@ def server_fn(context: Context) -> ServerAppComponents:
     momentum_local = float(rc.get("momentum",          0.9))
     dp_delta       = float(rc.get("dp-delta",          1e-5))
     sparsity_ratio = float(rc.get("sparsity-ratio",    0.5))
+    
     # FedYogi-specific adaptive learning rate parameters
     eta            = float(rc.get("fedyogi-eta",       0.01))
     eta_l          = float(rc.get("fedyogi-eta-l",     0.01))
@@ -118,42 +119,37 @@ def server_fn(context: Context) -> ServerAppComponents:
     beta_2         = float(rc.get("fedyogi-beta-2",    0.99))
     tau            = float(rc.get("fedyogi-tau",       1e-3))
 
-    config = ServerConfig(num_rounds=num_rounds)
+    initial_model = load_model()
+    arrays = ArrayRecord(torch_state_dict=initial_model.state_dict())
 
-    # Per-round config dict injected into every client's fit() call
-    def fit_config(server_round: int) -> dict:
-        return {
+    def fit_config(server_round: int) -> ConfigRecord:
+        return ConfigRecord({
             "proximal_mu":    proximal_mu,
             "local_epochs":   local_epochs,
             "lr_local":       lr_local,
             "momentum_local": momentum_local,
             "dp_delta":       dp_delta,
             "sparsity_ratio": sparsity_ratio,
-        }
-
-    # Initialise global model parameters (required by FedYogi)
-    initial_model  = load_model()
-    initial_ndarrays = [
-        val.cpu().numpy() for _, val in initial_model.state_dict().items()
-    ]
-    initial_parameters = ndarrays_to_parameters(initial_ndarrays)
+        })
 
     # FedYogi server-side adaptive optimiser
-    # SecAgg is simulated: in production, strategy would be wrapped with
-    # SecAggPlusWorkflow or equivalent before being passed to ServerAppComponents.
     strategy = FedYogi(
-        initial_parameters=initial_parameters,
         eta=eta,
         eta_l=eta_l,
         beta_1=beta_1,
         beta_2=beta_2,
         tau=tau,
-        on_fit_config_fn=fit_config,
-        fit_metrics_aggregation_fn=fit_metrics_aggregation_fn,
-        evaluate_metrics_aggregation_fn=evaluate_metrics_aggregation_fn,
+        train_metrics_aggr_fn=fit_metrics_aggregation_fn,
+        evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn,
     )
 
-    return ServerAppComponents(strategy=strategy, config=config)
+    result = strategy.start(
+        grid=grid,
+        initial_arrays=arrays,
+        train_config=fit_config(1),
+        num_rounds=num_rounds,
+    )
 
-
-app = ServerApp(server_fn=server_fn)
+    print("\nSaving final model to disk...")
+    import torch
+    torch.save(result.arrays.to_torch_state_dict(), "final_model.pt")

@@ -13,7 +13,7 @@ dependencies = [
     # 1.13+ required for FedYogi + simulation.
     # 1.21+ introduces import deprecations (flwr.client → flwr.clientapp, etc.)
     # and the Message API. NumPyClient still works but will show deprecation warnings.
-    "flwr[simulation]>=1.13.0",
+    "flwr[simulation]>=1.21.0",
     "torch",
     "torchvision",
     "opacus",
@@ -80,8 +80,24 @@ fedyogi-tau      = 1e-3       # Adaptivity parameter τ (prevents division by ze
 #     flwr federation simulation-config local-simulation \
 #       '{"num-supernodes":10,"backend":{"client_resources":{"num_cpus":4,"num_gpus":0}}}'
 # ──────────────────────────────────────────────────────────────────────────────
-[tool.flwr.federations]
-default = "local-simulation"
 
-[tool.flwr.federations.local-simulation]
-num-supernodes = 10
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-simulation"
+
+# [tool.flwr.federations.local-simulation]
+# options.num-supernodes = 10
