@@ -10,7 +10,7 @@ from opacus import PrivacyEngine
 
 # ── Flower v2 Message API imports ─────────────────────────────────────────────
 from flwr.clientapp import ClientApp
-from flwr.common import Context, Message, RecordDict, ArrayRecord, MetricRecord
+from flwr.app import Context, Message, RecordDict, ArrayRecord, MetricRecord
 
 from task import load_data, load_model, train_ditto_dp, test, get_model_size, DEVICE
 

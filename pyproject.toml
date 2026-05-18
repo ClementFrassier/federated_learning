@@ -14,7 +14,7 @@ dependencies = [
     # 1.13+ required for FedYogi + simulation engine.
     # 1.21+ introduces import deprecations (flwr.client → flwr.clientapp, etc.)
     # and the Message API. NumPyClient + ServerAppComponents remain stable through 1.29.
-    "flwr[simulation]>=1.13.0",
+    "flwr[simulation]>=1.21.0",
     "torch",
     "torchvision",
     "opacus",
