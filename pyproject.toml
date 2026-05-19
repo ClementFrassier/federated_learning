@@ -37,28 +37,28 @@ clientapp = "client_app:app"
 [tool.flwr.app.config]
 
 # ── Federation ────────────────────────────────────────────────────────────────
-num-server-rounds = 3         # Total number of FL rounds
+num-server-rounds = 10         # Total number of FL rounds
 
 # ── Local training (client-side) ──────────────────────────────────────────────
-local-epochs   = 1            # Local epochs per round per client
+local-epochs   = 2            # Local epochs per round per client
 batch-size     = 16           # Mini-batch size (reduced to limit per-actor RAM)
-lr-global      = 0.001        # SGD lr — global (DP) model (set at __init__)
+lr-global      = 0.01        # SGD lr — global (DP) model (set at __init__)
 lr-local       = 0.001        # SGD lr — local (personalised) model (per round)
 momentum       = 0.9          # SGD momentum
 
 # ── Ditto personalisation ─────────────────────────────────────────────────────
-proximal-mu    = 0.05         # Proximal penalty weight µ (Ditto local objective)
+proximal-mu    = 0.1         # Proximal penalty weight µ (Ditto local objective)
 
 # ── Local Differential Privacy (Opacus) ──────────────────────────────────────
 # noise-multiplier and max-grad-norm are set ONCE at client initialisation.
 # Changing them mid-experiment would require recreating the PrivacyEngine
 # (which resets ε). Keep them stable across a full experiment run.
-noise-multiplier = 1.5        # DP-SGD noise σ  (↑ = more private, slower learning)
+noise-multiplier = 1.2       # DP-SGD noise σ  (↑ = more private, slower learning)
 max-grad-norm    = 1.0        # Gradient clipping norm C
 dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
 
 # ── Sparse uplink (magnitude pruning) ─────────────────────────────────────────
-sparsity-ratio = 0.5          # Fraction of weights zeroed before sending to server
+sparsity-ratio = 0.7          # Fraction of weights zeroed before sending to server
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Simulation federation — NOT configured here (Flower 1.26+)
