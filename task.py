@@ -17,7 +17,6 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ── Model ─────────────────────────────────────────────────────────────────────
 class Net(nn.Module):
     """CNN for FashionMNIST (1-channel, 28×28).
-
     GroupNorm layers replace BatchNorm for:
     - Opacus (DP-SGD) compatibility (no per-sample statistics).
     - FedBN-style local normalisation (GN weights are never sent to the server).
