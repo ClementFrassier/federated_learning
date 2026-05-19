@@ -35,18 +35,18 @@ clientapp = "client_app:app"
 [tool.flwr.app.config]
 
 # ── Federation ────────────────────────────────────────────────────────────────
-num-server-rounds = 3         # Total FL rounds
+num-server-rounds = 10        # Total FL rounds
 
 # ── Local training ────────────────────────────────────────────────────────────
-local-epochs  = 1             # Local epochs per round per client
-batch-size    = 64            # Mini-batch size
+local-epochs  = 2             # Local epochs per round per client
+batch-size    = 16            # Mini-batch size
 
 # ── FedProx ───────────────────────────────────────────────────────────────────
-proximal_mu   = 0.1           # Proximal penalty weight µ (FedProx objective)
+proximal_mu   = 0.05           # Proximal penalty weight µ (FedProx objective)
 
 # ── Standard-DP (Opacus) ─────────────────────────────────────────────────────
 # These are set once at client init (PrivacyEngine is persistent across rounds).
 # Changing them mid-experiment would require recreating the engine (resets ε).
-noise-multiplier = 0.5        # DP-SGD noise σ  (↑ = more private, slower learning)
+noise-multiplier = 1.2        # DP-SGD noise σ  (↑ = more private, slower learning)
 max-grad-norm    = 1.0        # Gradient clipping norm C
 dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
