@@ -41,16 +41,52 @@ class Net(nn.Module):
 
 
 # ── Data Loading ──────────────────────────────────────────────────────────────
-def load_data(node_id: int = 0, num_clients: int = 10, batch_size: int = 32):
-    """Load FashionMNIST and return the IID partition for a given client."""
+def load_data(
+    node_id: int = 0,
+    num_clients: int = 10,
+    batch_size: int = 32,
+    alpha: float = 0.0,
+    seed: int = 42,
+):
+    """Load FashionMNIST and return a partition for a given client.
+
+    Partitioning strategy
+    ---------------------
+    alpha == 0  →  IID sequential split (original behaviour).
+    alpha  > 0  →  Non-IID Dirichlet(alpha) split.
+                   Lower alpha → more heterogeneous (0.1 = very skewed,
+                   0.5 = moderately skewed, 1.0 ≈ IID).
+    """
     trf = Compose([ToTensor(), Normalize((0.5,), (0.5,))])
     trainset = FashionMNIST("./data", train=True,  download=True, transform=trf)
     testset  = FashionMNIST("./data", train=False, download=True, transform=trf)
 
-    n       = len(trainset) // num_clients
-    indices = list(range(node_id * n, (node_id + 1) * n))
-    client_trainset = torch.utils.data.Subset(trainset, indices)
+    if alpha > 0.0:
+        # ── Dirichlet non-IID ──────────────────────────────────────────────────
+        rng = np.random.default_rng(seed)
+        targets = np.array(trainset.targets)
+        num_classes = int(targets.max()) + 1
+        client_indices = [[] for _ in range(num_clients)]
 
+        for cls in range(num_classes):
+            cls_idx = np.where(targets == cls)[0]
+            rng.shuffle(cls_idx)
+            proportions = rng.dirichlet([alpha] * num_clients)
+            counts = (proportions * len(cls_idx)).astype(int)
+            # Fix rounding so all samples are assigned
+            counts[-1] = len(cls_idx) - counts[:-1].sum()
+            ptr = 0
+            for cid, n in enumerate(counts):
+                client_indices[cid].extend(cls_idx[ptr: ptr + n].tolist())
+                ptr += n
+
+        indices = client_indices[node_id]
+    else:
+        # ── IID sequential (original) ──────────────────────────────────────────
+        n = len(trainset) // num_clients
+        indices = list(range(node_id * n, (node_id + 1) * n))
+
+    client_trainset = torch.utils.data.Subset(trainset, indices)
     trainloader = DataLoader(client_trainset, batch_size=batch_size, shuffle=True)
     testloader  = DataLoader(testset,         batch_size=batch_size, shuffle=False)
     return trainloader, testloader

@@ -27,7 +27,7 @@ app = ClientApp()
 _ditto_state: dict = {}
 
 def _get_or_init_ditto_state(node_id, num_clients, batch_size,
-                              lr_global, momentum_global):
+                              lr_global, momentum_global, alpha, seed):
     """Lazily create the persistent Ditto objects for a client node.
     Called only once per node.
     """
@@ -37,7 +37,8 @@ def _get_or_init_ditto_state(node_id, num_clients, batch_size,
         local_net.load_state_dict(global_net.state_dict())
 
         trainloader, testloader = load_data(
-            node_id=node_id, num_clients=num_clients, batch_size=batch_size
+            node_id=node_id, num_clients=num_clients,
+            batch_size=batch_size, alpha=alpha, seed=seed,
         )
 
         optimizer = torch.optim.SGD(
@@ -69,6 +70,8 @@ def train(msg: Message, context: Context) -> Message:
     batch_size       = int(rc.get("batch-size",          32))
     lr_global        = float(rc.get("lr-global",          0.01))
     momentum_global  = float(rc.get("momentum",           0.9))
+    alpha            = float(rc.get("alpha",              0.0))
+    seed             = int(rc.get("partition-seed",       42))
 
     # ── Per-round config from server (msg.content["config"]) ─────────────────
     cfg           = msg.content["config"]
@@ -79,7 +82,7 @@ def train(msg: Message, context: Context) -> Message:
 
     # ── Lazy init of persistent Ditto state ───────────────────────────────────
     state = _get_or_init_ditto_state(
-        node_id, num_clients, batch_size, lr_global, momentum_global
+        node_id, num_clients, batch_size, lr_global, momentum_global, alpha, seed
     )
 
     # ── 1. Receive global weights from server → inject into global_net ────────
@@ -143,6 +146,8 @@ def evaluate(msg: Message, context: Context) -> Message:
     num_clients = context.node_config.get("num-partitions", 10)
     rc          = context.run_config
     batch_size  = int(rc.get("batch-size", 32))
+    alpha       = float(rc.get("alpha", 0.0))
+    seed        = int(rc.get("partition-seed", 42))
 
     incoming = msg.content["arrays"].to_torch_state_dict()
 
@@ -156,7 +161,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         testloader = _ditto_state[node_id]["testloader"]
     else:
         _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                                  batch_size=batch_size)
+                                  batch_size=batch_size, alpha=alpha, seed=seed)
 
     _, acc_global = test(model_global, testloader)
 
