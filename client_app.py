@@ -8,15 +8,14 @@ from collections import OrderedDict
 import torch
 import torch.quantization
 import numpy as np
-from opacus import PrivacyEngine
 
 # ── Flower v2 Message API imports ─────────────────────────────────────────────
 from flwr.clientapp import ClientApp
 from flwr.app import Context, Message, RecordDict, ArrayRecord, MetricRecord
 
 from task import (
-    load_data, load_model, train_ditto_dp,
-    apply_sparsification, test, get_model_size,
+    load_data, load_model, train_ditto,
+    test, get_model_size,
     DEVICE,
 )
 
@@ -28,11 +27,9 @@ app = ClientApp()
 _ditto_state: dict = {}
 
 def _get_or_init_ditto_state(node_id, num_clients, batch_size,
-                              noise_multiplier, max_grad_norm,
                               lr_global, momentum_global):
-    """Lazily create the persistent Ditto + DP objects for a client node.
-    Called only once per node. Subsequent rounds reuse the same objects
-    so the PrivacyEngine accumulates ε across the entire simulation.
+    """Lazily create the persistent Ditto objects for a client node.
+    Called only once per node.
     """
     if node_id not in _ditto_state:
         global_net  = load_model()
@@ -43,25 +40,16 @@ def _get_or_init_ditto_state(node_id, num_clients, batch_size,
             node_id=node_id, num_clients=num_clients, batch_size=batch_size
         )
 
-        pe        = PrivacyEngine()
         optimizer = torch.optim.SGD(
             global_net.parameters(), lr=lr_global, momentum=momentum_global
         )
-        global_net_dp, opt_dp, loader_dp = pe.make_private(
-            module=global_net,
-            optimizer=optimizer,
-            data_loader=trainloader,
-            noise_multiplier=noise_multiplier,
-            max_grad_norm=max_grad_norm,
-        )
 
         _ditto_state[node_id] = {
-            "global_net": global_net_dp,
+            "global_net": global_net,
             "local_net":  local_net,
-            "opt_dp":     opt_dp,
-            "loader_dp":  loader_dp,
+            "optimizer":  optimizer,
+            "trainloader": trainloader,
             "testloader": testloader,
-            "pe":         pe,
         }
 
     return _ditto_state[node_id]
@@ -81,8 +69,6 @@ def train(msg: Message, context: Context) -> Message:
     batch_size       = int(rc.get("batch-size",          32))
     lr_global        = float(rc.get("lr-global",          0.01))
     momentum_global  = float(rc.get("momentum",           0.9))
-    noise_multiplier = float(rc.get("noise-multiplier",   1.8))
-    max_grad_norm    = float(rc.get("max-grad-norm",      1.0))
 
     # ── Per-round config from server (msg.content["config"]) ─────────────────
     cfg           = msg.content["config"]
@@ -90,56 +76,41 @@ def train(msg: Message, context: Context) -> Message:
     mu            = float(cfg.get("proximal_mu",  0.01))
     lr_local      = float(cfg.get("lr_local",     0.001))
     momentum_local= float(cfg.get("momentum_local", 0.9))
-    dp_delta      = float(cfg.get("dp_delta",     1e-5))
-    sparsity_ratio= float(cfg.get("sparsity_ratio", 0.5))
 
     # ── Lazy init of persistent Ditto state ───────────────────────────────────
     state = _get_or_init_ditto_state(
-        node_id, num_clients, batch_size,
-        noise_multiplier, max_grad_norm, lr_global, momentum_global
+        node_id, num_clients, batch_size, lr_global, momentum_global
     )
 
     # ── 1. Receive global weights from server → inject into global_net ────────
     incoming = msg.content["arrays"].to_torch_state_dict()
-    state["global_net"]._module.load_state_dict(
+    state["global_net"].load_state_dict(
         {k: v.to(DEVICE) for k, v in incoming.items()}, strict=True
     )
 
     # ── 2. Re-sync local_net to current global weights (Ditto requirement) ────
     state["local_net"].load_state_dict(
-        state["global_net"]._module.state_dict()
+        state["global_net"].state_dict()
     )
 
-    # ── 3. Train (persistent Opacus objects passed in — ε accumulates) ────────
-    _, state["local_net"] = train_ditto_dp(
-        state["global_net"], state["opt_dp"], state["loader_dp"],
+    # ── 3. Train ──────────────────────────────────────────────────────────────
+    _, state["local_net"] = train_ditto(
+        state["global_net"], state["optimizer"], state["trainloader"],
         state["local_net"],
         epochs=local_epochs, mu=mu,
         lr_local=lr_local, momentum_local=momentum_local,
     )
 
-    dp_epsilon = state["pe"].get_epsilon(delta=dp_delta)
+    # ── 4. Build reply message ────────────────────────────────────────────────
+    model_record = ArrayRecord(torch_state_dict={
+        k: v.cpu() for k, v in state["global_net"].state_dict().items()
+    })
 
-    # ── 4. Sparsify before sending (magnitude pruning) ────────────────────────
-    # Extract weights as NumPy arrays for the apply_sparsification function
     params_to_return = [
         val.cpu().numpy()
-        for _, val in state["global_net"]._module.state_dict().items()
+        for _, val in state["global_net"].state_dict().items()
     ]
-    sparse_params_to_return = apply_sparsification(
-        params_to_return, sparsity_ratio=sparsity_ratio
-    )
-    
-    # Re-package as state_dict for ArrayRecord
-    state_keys = list(state["global_net"]._module.state_dict().keys())
-    sparse_state_dict = OrderedDict(
-        (k, torch.tensor(v)) for k, v in zip(state_keys, sparse_params_to_return)
-    )
-
-    # ── 5. Build reply message ────────────────────────────────────────────────
-    model_record = ArrayRecord(torch_state_dict=sparse_state_dict)
-
-    comm_size_mb     = sum(p.nbytes for p in sparse_params_to_return) / (1024 * 1024)
+    comm_size_mb     = sum(p.nbytes for p in params_to_return) / (1024 * 1024)
     _, peak_ram      = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     fit_time         = time.time() - start_time
@@ -151,9 +122,9 @@ def train(msg: Message, context: Context) -> Message:
         "peak_ram_mb":      float(peak_ram_mb),
         "comm_size_mb":     float(comm_size_mb),
         "model_size_mb":    float(get_model_size(state["local_net"])),
-        "dp_epsilon":       float(dp_epsilon),
+        "dp_epsilon":       0.0,
         "estimated_energy": float(estimated_energy),
-        "num-examples":     float(len(state["loader_dp"].dataset)),
+        "num-examples":     float(len(state["trainloader"].dataset)),
     }
 
     content = RecordDict({
@@ -175,7 +146,7 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     incoming = msg.content["arrays"].to_torch_state_dict()
 
-    # ── EVAL 1 — Global model (FedYogi-aggregated weights) ───────────────────
+    # ── EVAL 1 — Global model (aggregated weights) ───────────────────
     model_global = load_model()
     model_global.load_state_dict(
         {k: v.to(DEVICE) for k, v in incoming.items()}, strict=True
@@ -189,7 +160,7 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     _, acc_global = test(model_global, testloader)
 
-    # ── EVAL 2 — Local model (locally-trained GN → Ditto personalisation) ─────
+    # ── EVAL 2 — Local model ──────────────────────────────────────────────────
     if node_id in _ditto_state:
         model_local = _ditto_state[node_id]["local_net"]
         local_sd = model_local.state_dict()

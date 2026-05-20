@@ -3,13 +3,13 @@ import os
 
 from flwr.app import ArrayRecord, ConfigRecord, Context, MetricRecord, RecordDict
 from flwr.serverapp import Grid, ServerApp
-from flwr.serverapp.strategy import FedYogi
+from flwr.serverapp.strategy import FedAvg
 
 from task import load_model
 
 # ── CSV logger ────────────────────────────────────────────────────────────────
 CSV_DIR  = "resultsfeat"
-CSV_FILE = os.path.join(CSV_DIR, "results_ditto-FedYogi-sdp-secAgg-sparse.csv")
+CSV_FILE = os.path.join(CSV_DIR, "results_ditto-only.csv")
 
 
 class MetricLogger:
@@ -104,20 +104,11 @@ app = ServerApp()
 def main(grid: Grid, context: Context) -> None:
     rc = context.run_config
 
-    num_rounds     = int(rc.get("num-server-rounds",  30))
-    proximal_mu    = float(rc.get("proximal-mu",       0.01))
-    local_epochs   = int(rc.get("local-epochs",        1))
-    lr_local       = float(rc.get("lr-local",          0.001))
+    num_rounds     = int(rc.get("num-server-rounds",  10))
+    proximal_mu    = float(rc.get("proximal-mu",       0.05))
+    local_epochs   = int(rc.get("local-epochs",        2))
+    lr_local       = float(rc.get("lr-local",          0.005))
     momentum_local = float(rc.get("momentum",          0.9))
-    dp_delta       = float(rc.get("dp-delta",          1e-5))
-    sparsity_ratio = float(rc.get("sparsity-ratio",    0.5))
-    
-    # FedYogi-specific adaptive learning rate parameters
-    eta            = float(rc.get("fedyogi-eta",       0.01))
-    eta_l          = float(rc.get("fedyogi-eta-l",     0.01))
-    beta_1         = float(rc.get("fedyogi-beta-1",    0.9))
-    beta_2         = float(rc.get("fedyogi-beta-2",    0.99))
-    tau            = float(rc.get("fedyogi-tau",       1e-3))
 
     initial_model = load_model()
     arrays = ArrayRecord(torch_state_dict=initial_model.state_dict())
@@ -128,17 +119,10 @@ def main(grid: Grid, context: Context) -> None:
             "local_epochs":   local_epochs,
             "lr_local":       lr_local,
             "momentum_local": momentum_local,
-            "dp_delta":       dp_delta,
-            "sparsity_ratio": sparsity_ratio,
         })
 
-    # FedYogi server-side adaptive optimiser
-    strategy = FedYogi(
-        eta=eta,
-        eta_l=eta_l,
-        beta_1=beta_1,
-        beta_2=beta_2,
-        tau=tau,
+    # Standard FedAvg strategy
+    strategy = FedAvg(
         train_metrics_aggr_fn=fit_metrics_aggregation_fn,
         evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn,
     )

@@ -5,18 +5,14 @@ build-backend = "hatchling.build"
 [project]
 name = "pytorch-flwr"
 version = "1.0.0"
-description = "Federated Learning — Ditto + FedYogi + Stepwise-DP + SecAgg + Sparse"
+description = "Federated Learning — Ditto Only (FedAvg)"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
-    # 1.13+ required for FedYogi + simulation.
-    # 1.21+ introduces import deprecations (flwr.client → flwr.clientapp, etc.)
-    # and the Message API. NumPyClient still works but will show deprecation warnings.
-    "flwr[simulation]>=1.21.0",
+    "flwr[simulation]>=1.29.0",
     "torch",
     "torchvision",
-    "opacus",
     "numpy",
 ]
 
@@ -37,31 +33,23 @@ clientapp = "client_app:app"
 [tool.flwr.app.config]
 
 # ── Federation ────────────────────────────────────────────────────────────────
-num-server-rounds = 3         # Total number of FL rounds
+num-server-rounds = 10         # Total number of FL rounds
 
 # ── Local training (client-side) ──────────────────────────────────────────────
-local-epochs    = 1           # Local epochs per client per round
+local-epochs    = 2           # Local epochs per client per round
 batch-size      = 16          # Mini-batch size (reduced to limit per-actor RAM)
-lr-global       = 0.01        # SGD lr for the global (DP) model
-lr-local        = 0.001       # SGD lr for the local (personalised) model
+lr-global       = 0.01        # SGD lr for the global model
+lr-local        = 0.005       # SGD lr for the local (personalised) model
 momentum        = 0.9         # SGD momentum (global and local optimisers)
 
 # ── Ditto personalisation ─────────────────────────────────────────────────────
-proximal-mu     = 0.01        # Proximal penalty weight µ (Ditto local objective)
-
-# ── Stepwise-DP (Opacus) ──────────────────────────────────────────────────────
-noise-multiplier = 1.8        # DP-SGD noise σ  (↑ = more private, slower learning)
-max-grad-norm    = 1.0        # Gradient clipping norm C
-dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
-
-# ── Sparse uplink (magnitude pruning) ─────────────────────────────────────────
-sparsity-ratio   = 0.5        # Fraction of weights zeroed before sending to server
+proximal-mu     = 0.05        # Proximal penalty weight µ (Ditto local objective)
 
 # ── FedYogi server optimiser ──────────────────────────────────────────────────
-fedyogi-eta      = 0.01       # Server-side learning rate η
-fedyogi-eta-l    = 0.01       # Client-side learning rate ηₗ (used internally)
+fedyogi-eta      = 0.001       # Server-side learning rate η
+fedyogi-eta-l    = 0.001       # Client-side learning rate ηₗ (used internally)
 fedyogi-beta-1   = 0.9        # First moment decay β₁
-fedyogi-beta-2   = 0.99       # Second moment decay β₂
+fedyogi-beta-2   = 0.999       # Second moment decay β₂
 fedyogi-tau      = 1e-3       # Adaptivity parameter τ (prevents division by zero)
 
 # ──────────────────────────────────────────────────────────────────────────────

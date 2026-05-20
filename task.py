@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import FashionMNIST
 from torchvision.transforms import Compose, Normalize, ToTensor
 import numpy as np
-from opacus import PrivacyEngine
 
 # ── Device ────────────────────────────────────────────────────────────────────
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -18,19 +17,16 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Net(nn.Module):
     """CNN for FashionMNIST (1-channel, 28×28).
 
-    GroupNorm layers replace BatchNorm for Opacus (DP-SGD) compatibility.
+    GroupNorm layers replace BatchNorm.
     """
 
     def __init__(self) -> None:
         super(Net, self).__init__()
-        # 1 input channel (greyscale)
         self.conv1 = nn.Conv2d(1, 6, 5)
-        # GroupNorm required for Opacus compatibility
         self.gn1   = nn.GroupNorm(num_groups=2, num_channels=6)
         self.pool  = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
         self.gn2   = nn.GroupNorm(num_groups=4, num_channels=16)
-        # FashionMNIST 28×28 → after 2×(conv5 + pool2) → 4×4
         self.fc1 = nn.Linear(16 * 4 * 4, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 10)
@@ -46,16 +42,11 @@ class Net(nn.Module):
 
 # ── Data Loading ──────────────────────────────────────────────────────────────
 def load_data(node_id: int = 0, num_clients: int = 10, batch_size: int = 32):
-    """Load FashionMNIST and return the IID partition for a given client.
-
-    Training set is divided evenly: 60 000 / num_clients images per client.
-    The full test set (10 000 images) is used for evaluation.
-    """
+    """Load FashionMNIST and return the IID partition for a given client."""
     trf = Compose([ToTensor(), Normalize((0.5,), (0.5,))])
     trainset = FashionMNIST("./data", train=True,  download=True, transform=trf)
     testset  = FashionMNIST("./data", train=False, download=True, transform=trf)
 
-    # Simple IID contiguous slice
     n       = len(trainset) // num_clients
     indices = list(range(node_id * n, (node_id + 1) * n))
     client_trainset = torch.utils.data.Subset(trainset, indices)
@@ -75,60 +66,25 @@ def get_model_size(model) -> float:
     """Return model size in megabytes (parameters + buffers)."""
     param_size  = sum(p.nelement() * p.element_size() for p in model.parameters())
     buffer_size = sum(b.nelement() * b.element_size() for b in model.buffers())
-    return (param_size + buffer_size) / 1024 ** 2
+    return (param_size + buffer_size) / (1024 ** 2)
 
 
-def apply_sparsification(parameters, sparsity_ratio: float = 0.5):
-    """Apply magnitude pruning to a list of NumPy weight arrays.
-
-    Zeroes out weights below the (sparsity_ratio × 100)-th percentile,
-    keeping only the top (1 − sparsity_ratio) fraction of weights.
-    This reduces effective uplink bandwidth.
-    """
-    sparse_params = []
-    for param in parameters:
-        if param.size > 0:
-            threshold  = np.percentile(np.abs(param), sparsity_ratio * 100)
-            param_copy = param.copy()
-            param_copy[np.abs(param_copy) < threshold] = 0.0
-            sparse_params.append(param_copy)
-        else:
-            sparse_params.append(param)
-    return sparse_params
-
-
-# ── Ditto + Stepwise-DP Training ──────────────────────────────────────────────
-def train_ditto_dp(
-    global_net_dp,
-    global_optimizer_dp,
-    trainloader_dp,
+# ── Ditto Training ────────────────────────────────────────────────────────────
+def train_ditto(
+    global_net,
+    global_optimizer,
+    trainloader,
     local_net,
     epochs: int,
-    mu: float = 0.01,
-    lr_local: float = 0.001,
+    mu: float = 0.05,
+    lr_local: float = 0.005,
     momentum_local: float = 0.9,
 ):
     """One federation round of Ditto training.
 
-    The global model is trained with DP-SGD (Opacus).
+    The global model is trained with standard SGD.
     The local (personalised) model is trained with standard SGD and a
     proximal penalty that keeps it anchored to the incoming global weights.
-
-    The PrivacyEngine is **persistent** across rounds (passed in from the
-    client) so that epsilon accumulates correctly over the full experiment.
-
-    Args:
-        global_net_dp:        Opacus-wrapped global model.
-        global_optimizer_dp:  Opacus-wrapped optimiser for the global model.
-        trainloader_dp:       Opacus-wrapped DataLoader.
-        local_net:            Personalised local model (plain PyTorch).
-        epochs:               Number of local training epochs per round.
-        mu:                   Ditto proximal penalty weight µ.
-        lr_local:             Learning rate for the local SGD optimiser.
-        momentum_local:       Momentum for the local SGD optimiser.
-
-    Returns:
-        Tuple (global_net_unwrapped, local_net)
     """
     criterion      = torch.nn.CrossEntropyLoss()
     local_optimizer = torch.optim.SGD(
@@ -138,24 +94,23 @@ def train_ditto_dp(
     # Snapshot global weights at round start for the Ditto proximal term
     global_params_on_device = {
         k: v.clone().to(DEVICE)
-        for k, v in global_net_dp._module.state_dict().items()
+        for k, v in global_net.state_dict().items()
     }
 
-    global_net_dp.train()
+    global_net.train()
     local_net.train()
 
     for _ in range(epochs):
-        for images, labels in trainloader_dp:
+        for images, labels in trainloader:
             images, labels = images.to(DEVICE), labels.to(DEVICE)
 
-            # 1. Global model update (DP-SGD — no proximal term)
-            global_optimizer_dp.zero_grad()
-            global_loss = criterion(global_net_dp(images), labels)
+            # 1. Global model update (no proximal term)
+            global_optimizer.zero_grad()
+            global_loss = criterion(global_net(images), labels)
             global_loss.backward()
-            global_optimizer_dp.step()
+            global_optimizer.step()
 
             # 2. Local model update (SGD + Ditto proximal term)
-            #    Objective: min_v L(v) + µ/2 · ||v − w_t||²
             local_optimizer.zero_grad()
             local_loss = criterion(local_net(images), labels)
             proximal_term = sum(
@@ -166,8 +121,7 @@ def train_ditto_dp(
             (local_loss + (mu / 2.0) * proximal_term).backward()
             local_optimizer.step()
 
-    # Return the unwrapped global weights (without Opacus Ghost wrapper)
-    return global_net_dp._module, local_net
+    return global_net, local_net
 
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
@@ -198,20 +152,12 @@ if __name__ == "__main__":
 
     trainloader, testloader = load_data()
 
-    privacy_engine   = PrivacyEngine()
     global_optimizer = torch.optim.SGD(global_model.parameters(), lr=0.01, momentum=0.9)
-    global_model_dp, global_optimizer_dp, trainloader_dp = privacy_engine.make_private(
-        module=global_model,
-        optimizer=global_optimizer,
-        data_loader=trainloader,
-        noise_multiplier=1.8,
-        max_grad_norm=1.0,
-    )
 
-    print("Starting Ditto + DP training...")
-    global_model, local_model = train_ditto_dp(
-        global_model_dp, global_optimizer_dp, trainloader_dp,
-        local_model, epochs=2, mu=0.01,
+    print("Starting Ditto training...")
+    global_model, local_model = train_ditto(
+        global_model, global_optimizer, trainloader,
+        local_model, epochs=2, mu=0.05,
     )
 
     print("Evaluating local model...")
