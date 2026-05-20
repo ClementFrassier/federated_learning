@@ -19,12 +19,13 @@ app = ClientApp()
 _local_models: dict = {}   # node_id → { "net": net, "trainloader": trainloader, "testloader": testloader }
 
 
-def _get_or_init_local_model(node_id, num_clients, batch_size):
+def _get_or_init_local_model(node_id, num_clients, batch_size, alpha=0.0, seed=42):
     """Return (or lazily create) the persistent local model and dataloaders for a client."""
     if node_id not in _local_models:
         net = load_model()
         trainloader, testloader = load_data(
-            node_id=node_id, num_clients=num_clients, batch_size=batch_size
+            node_id=node_id, num_clients=num_clients,
+            batch_size=batch_size, alpha=alpha, seed=seed,
         )
         _local_models[node_id] = {
             "net": net,
@@ -57,12 +58,14 @@ def train_handler(msg: Message, context: Context) -> Message:
     epochs         = int(rc.get("local-epochs",     2))
     lr             = float(rc.get("lr-local",       0.01))
     momentum       = float(rc.get("momentum",        0.9))
+    alpha          = float(rc.get("alpha",           0.0))
+    seed           = int(rc.get("partition-seed",   42))
 
     # 1. Receive global weights — ArrayRecord → torch state dict
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
     # 2. Get (or lazily create) persistent local model for this partition
-    state = _get_or_init_local_model(node_id, num_clients, batch_size)
+    state = _get_or_init_local_model(node_id, num_clients, batch_size, alpha, seed)
 
     # Inject server weights into non-GN layers only (FedBN: GN stays local)
     local_state = state["net"].state_dict()
@@ -123,6 +126,8 @@ def evaluate(msg: Message, context: Context) -> Message:
     num_clients = context.node_config.get("num-partitions", 10)
     rc          = context.run_config
     batch_size  = int(rc.get("batch-size", 16))
+    alpha       = float(rc.get("alpha", 0.0))
+    seed        = int(rc.get("partition-seed", 42))
 
     # Receive server weights (non-GN only)
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
@@ -150,7 +155,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         # Fallback before first training round
         model_local = model_global
         _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                                  batch_size=batch_size)
+                                  batch_size=batch_size, alpha=alpha, seed=seed)
 
     _, acc_global     = test(model_global, testloader)
     _, acc_local_fp32 = test(model_local,  testloader)

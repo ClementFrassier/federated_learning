@@ -40,3 +40,7 @@ local-epochs    = 2           # Local epochs per client per round
 batch-size      = 16          # Mini-batch size (reduced to limit per-actor RAM)
 lr-local        = 0.01        # SGD learning rate for local training
 momentum        = 0.9         # SGD momentum
+
+# ── Data partitioning ─────────────────────────────────────────────────────────
+alpha           = 0.1         # Dirichlet concentration (0 = IID, 0.1 = very non-IID, 1.0 ≈ IID)
+partition-seed  = 42          # Random seed for Dirichlet partition (reproducibility)
