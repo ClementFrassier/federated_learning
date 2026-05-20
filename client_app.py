@@ -24,12 +24,13 @@ _privacy_engines: dict = {}   # partition_id → (privacy_engine, net_dp, opt_dp
 
 
 def _get_or_init_privacy_engine(node_id, num_clients, batch_size,
-                                 noise_multiplier, max_grad_norm):
+                                 noise_multiplier, max_grad_norm,
+                                 alpha=0.0, seed=42):
     """Return (or lazily create) the persistent Opacus objects for a client."""
     if node_id not in _privacy_engines:
         net              = load_model()
         trainloader, _   = load_data(node_id=node_id, num_clients=num_clients,
-                                     batch_size=batch_size)
+                                     batch_size=batch_size, alpha=alpha, seed=seed)
         privacy_engine   = PrivacyEngine()
         optimizer        = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
         net_dp, opt_dp, loader_dp = privacy_engine.make_private(
@@ -66,13 +67,15 @@ def train(msg: Message, context: Context) -> Message:
     noise_mult     = float(context.run_config.get("noise-multiplier", 0.5))
     max_grad_norm  = float(context.run_config.get("max-grad-norm",  1.0))
     dp_delta       = float(context.run_config.get("dp-delta",       1e-5))
+    alpha          = float(context.run_config.get("alpha",          0.0))
+    seed           = int(context.run_config.get("partition-seed",   42))
 
     # 1. Receive global weights — ArrayRecord → torch state dict
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
     # 2. Get (or lazily create) persistent Opacus objects for this partition
     privacy_engine, net_dp, opt_dp, loader_dp = _get_or_init_privacy_engine(
-        node_id, num_clients, batch_size, noise_mult, max_grad_norm
+        node_id, num_clients, batch_size, noise_mult, max_grad_norm, alpha, seed
     )
 
     # Inject server weights into non-GN layers only (FedBN: GN stays local)
@@ -151,6 +154,8 @@ def evaluate(msg: Message, context: Context) -> Message:
     node_id     = context.node_config.get("partition-id", 0)
     num_clients = context.node_config.get("num-partitions", 10)
     batch_size  = int(context.run_config.get("batch-size", 64))
+    alpha       = float(context.run_config.get("alpha", 0.0))
+    seed        = int(context.run_config.get("partition-seed", 42))
 
     # Receive server weights (non-GN only)
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
@@ -179,7 +184,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         model_local = model_global
 
     _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                              batch_size=batch_size)
+                              batch_size=batch_size, alpha=alpha, seed=seed)
 
     _, acc_global     = test(model_global, testloader)
     _, acc_local_fp32 = test(model_local,  testloader)

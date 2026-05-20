@@ -50,3 +50,7 @@ proximal_mu   = 0.05           # Proximal penalty weight µ (FedProx objective)
 noise-multiplier = 1.2        # DP-SGD noise σ  (↑ = more private, slower learning)
 max-grad-norm    = 1.0        # Gradient clipping norm C
 dp-delta         = 1e-5       # DP δ for ε reporting (keep ≤ 1/n_train)
+
+# ── Data partitioning ─────────────────────────────────────────────────────────
+alpha           = 0.1         # Dirichlet concentration (0 = IID, 0.1 = very non-IID, 1.0 ≈ IID)
+partition-seed  = 42          # Random seed for Dirichlet partition (reproducibility)
