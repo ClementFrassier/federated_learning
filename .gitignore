@@ -18,4 +18,5 @@ state.db
 final_model.pt
 
 # Result logs
-results_fedProx+fedBN+standDP+SecAgg.csv
+resultsfeat/
+*.csv

@@ -2,8 +2,8 @@ import csv
 import os
 import torch
 from flwr.serverapp import ServerApp, Grid
-from flwr.serverapp.strategy import FedProx
-from flwr.common import Context, ConfigRecord, ArrayRecord, MetricRecord
+from flwr.serverapp.strategy import FedAvg
+from flwr.app import Context, ConfigRecord, ArrayRecord, MetricRecord
 
 from task import Net
 
@@ -15,8 +15,10 @@ class MetricLogger:
 logger = MetricLogger()
 
 def write_to_csv(round_num, phase, metrics):
-    file_exists = os.path.isfile('results_fedProx+fedBN+standDP+SecAgg.csv')
-    with open('results_fedProx+fedBN+standDP+SecAgg.csv', mode='a', newline='') as f:
+    os.makedirs('resultsfeat', exist_ok=True)
+    file_path = 'resultsfeat/results_fedbn-only.csv'
+    file_exists = os.path.isfile(file_path)
+    with open(file_path, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(['Round', 'Phase', 'Metric', 'Value'])
@@ -73,20 +75,14 @@ app = ServerApp()
 
 @app.main()
 def main(grid: Grid, context: Context) -> None:
-    num_rounds  = int(context.run_config.get("num-server-rounds", 3))
-    # Read proximal_mu from run_config so it stays consistent with client_app.py.
-    # The value passed to FedProx() here is used by the server-side strategy;
-    # the client reads the same key from context.run_config independently.
-    proximal_mu = float(context.run_config.get("proximal_mu", 0.1))
+    num_rounds  = int(context.run_config.get("num-server-rounds", 10))
 
     # Initialise global model — server only tracks non-GN layers (FedBN)
     global_model  = Net()
     global_params = {k: v.cpu() for k, v in global_model.state_dict().items() if "gn" not in k}
-    # ✅ Correct ArrayRecord constructor — must use the torch_state_dict kwarg
     arrays = ArrayRecord(torch_state_dict=global_params)
 
-    strategy = FedProx(
-        proximal_mu=proximal_mu,
+    strategy = FedAvg(
         train_metrics_aggr_fn=train_metrics_aggr_fn,
         evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn,
     )

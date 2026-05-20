@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import FashionMNIST
 from torchvision.transforms import Compose, Normalize, ToTensor
 import numpy as np
-from opacus import PrivacyEngine
 
 # ── Device ────────────────────────────────────────────────────────────────────
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -18,7 +17,6 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 class Net(nn.Module):
     """CNN for FashionMNIST (1-channel, 28×28).
     GroupNorm layers replace BatchNorm for:
-    - Opacus (DP-SGD) compatibility (no per-sample statistics).
     - FedBN-style local normalisation (GN weights are never sent to the server).
     """
 
@@ -72,54 +70,19 @@ def get_model_size(model) -> float:
     return (param_size + buffer_size) / 1024 ** 2
 
 
-# ── FedProx + Standard-DP Training ───────────────────────────────────────────
-def train_fedprox_dp(
-    net_dp,
-    optimizer_dp,
-    trainloader_dp,
-    global_params_on_device: dict,
-    epochs: int,
-    mu: float = 0.1,
-):
-    """One federation round of FedProx + DP-SGD training.
-
-    IMPORTANT — The PrivacyEngine is NOT created here.
-    It must be created once in the client (train function) and kept alive
-    across ALL rounds so that epsilon accumulates correctly.
-
-    Args:
-        net_dp:                 Opacus-wrapped model (persistent across rounds).
-        optimizer_dp:           Opacus-wrapped SGD optimiser (persistent).
-        trainloader_dp:         Opacus-wrapped DataLoader (persistent).
-        global_params_on_device: Server weights (non-GN layers) for FedProx penalty.
-        epochs:                 Number of local training epochs.
-        mu:                     FedProx proximal penalty weight µ.
-
-    Returns:
-        net_dp._module  (unwrapped weights, ready to send back)
-    """
+# ── Standard local training ───────────────────────────────────────────────────
+def train(net, trainloader, epochs: int, lr: float = 0.01, momentum: float = 0.9):
+    """Train the model with standard SGD (no DP, no FedProx)."""
     criterion = torch.nn.CrossEntropyLoss()
-
-    net_dp.train()
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr, momentum=momentum)
+    net.train()
     for _ in range(epochs):
-        for images, labels in trainloader_dp:
+        for images, labels in trainloader:
             images, labels = images.to(DEVICE), labels.to(DEVICE)
-            optimizer_dp.zero_grad()
-
-            # Standard cross-entropy loss
-            loss = criterion(net_dp(images), labels)
-
-            # FedProx proximal term: µ/2 · ||w − w_t||²
-            # GN layers are excluded (FedBN principle: normalisation is local)
-            proximal_term = sum(
-                torch.sum((param - global_params_on_device[name.replace("_module.", "")]) ** 2)
-                for name, param in net_dp.named_parameters()
-                if "gn" not in name and name.replace("_module.", "") in global_params_on_device
-            )
-            (loss + (mu / 2.0) * proximal_term).backward()
-            optimizer_dp.step()
-
-    return net_dp._module
+            optimizer.zero_grad()
+            loss = criterion(net(images), labels)
+            loss.backward()
+            optimizer.step()
 
 
 # ── Evaluation ────────────────────────────────────────────────────────────────

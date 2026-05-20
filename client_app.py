@@ -7,52 +7,43 @@ import torch
 import torch.quantization
 from collections import OrderedDict
 
-from opacus import PrivacyEngine
-
 from flwr.clientapp import ClientApp
-from flwr.common import Context, Message, RecordDict, ArrayRecord, MetricRecord
+from flwr.app import Context, Message, RecordDict, ArrayRecord, MetricRecord
 
-from task import load_data, load_model, train_fedprox_dp, test, get_model_size, DEVICE
+from task import load_data, load_model, train, test, get_model_size, DEVICE
 
 app = ClientApp()
 
 # ── Per-client persistent state ───────────────────────────────────────────────
-# Opacus PrivacyEngine must live across rounds to accumulate ε correctly.
-# We store one engine per partition-id in a module-level dict so the
-# stateless @app.train decorator can access it between calls.
-_privacy_engines: dict = {}   # partition_id → (privacy_engine, net_dp, opt_dp, loader_dp)
+# Local models with their personal GroupNorm layers must live across rounds.
+_local_models: dict = {}   # node_id → { "net": net, "trainloader": trainloader, "testloader": testloader }
 
 
-def _get_or_init_privacy_engine(node_id, num_clients, batch_size,
-                                 noise_multiplier, max_grad_norm):
-    """Return (or lazily create) the persistent Opacus objects for a client."""
-    if node_id not in _privacy_engines:
-        net              = load_model()
-        trainloader, _   = load_data(node_id=node_id, num_clients=num_clients,
-                                     batch_size=batch_size)
-        privacy_engine   = PrivacyEngine()
-        optimizer        = torch.optim.SGD(net.parameters(), lr=0.001, momentum=0.9)
-        net_dp, opt_dp, loader_dp = privacy_engine.make_private(
-            module=net,
-            optimizer=optimizer,
-            data_loader=trainloader,
-            noise_multiplier=noise_multiplier,
-            max_grad_norm=max_grad_norm,
+def _get_or_init_local_model(node_id, num_clients, batch_size):
+    """Return (or lazily create) the persistent local model and dataloaders for a client."""
+    if node_id not in _local_models:
+        net = load_model()
+        trainloader, testloader = load_data(
+            node_id=node_id, num_clients=num_clients, batch_size=batch_size
         )
-        _privacy_engines[node_id] = (privacy_engine, net_dp, opt_dp, loader_dp)
-    return _privacy_engines[node_id]
+        _local_models[node_id] = {
+            "net": net,
+            "trainloader": trainloader,
+            "testloader": testloader,
+        }
+    return _local_models[node_id]
 
 
 # ── Train ─────────────────────────────────────────────────────────────────────
 @app.train()
-def train(msg: Message, context: Context) -> Message:
-    """FedProx + FedBN + DP-SGD local training step.
+def train_handler(msg: Message, context: Context) -> Message:
+    """FedBN local training step.
 
     Workflow
     --------
     1. Receive global weights (non-GN layers only) from the server.
     2. Inject them into the local model — GN layers remain local (FedBN).
-    3. Train with FedProx + Opacus DP-SGD.
+    3. Train with standard SGD (no proximal term, no DP).
     4. Return only non-GN weights + KPI metrics.
     """
     start_time = time.time()
@@ -60,51 +51,34 @@ def train(msg: Message, context: Context) -> Message:
 
     node_id        = context.node_config.get("partition-id", 0)
     num_clients    = context.node_config.get("num-partitions", 10)
-    batch_size     = int(context.run_config.get("batch-size",       64))
-    mu             = float(context.run_config.get("proximal_mu",    0.1))
-    epochs         = int(context.run_config.get("local-epochs",     1))
-    noise_mult     = float(context.run_config.get("noise-multiplier", 0.5))
-    max_grad_norm  = float(context.run_config.get("max-grad-norm",  1.0))
-    dp_delta       = float(context.run_config.get("dp-delta",       1e-5))
+    rc             = context.run_config
+
+    batch_size     = int(rc.get("batch-size",       16))
+    epochs         = int(rc.get("local-epochs",     2))
+    lr             = float(rc.get("lr-local",       0.01))
+    momentum       = float(rc.get("momentum",        0.9))
 
     # 1. Receive global weights — ArrayRecord → torch state dict
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
-    # 2. Get (or lazily create) persistent Opacus objects for this partition
-    privacy_engine, net_dp, opt_dp, loader_dp = _get_or_init_privacy_engine(
-        node_id, num_clients, batch_size, noise_mult, max_grad_norm
-    )
+    # 2. Get (or lazily create) persistent local model for this partition
+    state = _get_or_init_local_model(node_id, num_clients, batch_size)
 
     # Inject server weights into non-GN layers only (FedBN: GN stays local)
-    local_state = net_dp._module.state_dict()
+    local_state = state["net"].state_dict()
     for k in local_state:
         if "gn" not in k and k in incoming_state_dict:
             local_state[k] = incoming_state_dict[k].to(DEVICE)
-    net_dp._module.load_state_dict(local_state, strict=True)
+    state["net"].load_state_dict(local_state, strict=True)
 
-    # 3. Snapshot global (non-GN) weights for the FedProx proximal term
-    global_params_on_device = {
-        k: v.clone().to(DEVICE)
-        for k, v in net_dp._module.state_dict().items()
-        if "gn" not in k
-    }
+    # 3. Train
+    train(state["net"], state["trainloader"], epochs=epochs, lr=lr, momentum=momentum)
 
-    # 4. Train FedProx + DP
-    _ = train_fedprox_dp(
-        net_dp, opt_dp, loader_dp,
-        global_params_on_device,
-        epochs=epochs, mu=mu,
-    )
-
-    # 5. Cumulative ε (correct because PrivacyEngine is persistent)
-    dp_epsilon = privacy_engine.get_epsilon(delta=dp_delta)
-
-    # 6. Return only non-GN weights (server aggregates only these)
+    # 4. Return only non-GN weights (server aggregates only these)
     state_to_return = {
-        k: v.cpu() for k, v in net_dp._module.state_dict().items()
+        k: v.cpu() for k, v in state["net"].state_dict().items()
         if "gn" not in k
     }
-    # ✅ Correct ArrayRecord constructor — use keyword argument
     model_record = ArrayRecord(torch_state_dict=state_to_return)
 
     # KPIs
@@ -121,10 +95,10 @@ def train(msg: Message, context: Context) -> Message:
         "fit_time":         float(fit_time),
         "peak_ram_mb":      float(peak_ram_mb),
         "comm_size_mb":     float(comm_size_mb),
-        "model_size_mb":    float(get_model_size(net_dp._module)),
-        "dp_epsilon":       float(dp_epsilon),
+        "model_size_mb":    float(get_model_size(state["net"])),
+        "dp_epsilon":       0.0,
         "estimated_energy": float(estimated_energy),
-        "num-examples":     len(loader_dp.dataset),
+        "num-examples":     float(len(state["trainloader"].dataset)),
     }
 
     content = RecordDict({
@@ -140,17 +114,15 @@ def evaluate(msg: Message, context: Context) -> Message:
     """Three-level evaluation: global FP32 / local FP32 / local INT8 (TinyML proxy).
 
     acc_global     : global model accuracy (no local FedBN adaptation)
-    acc_local_fp32 : local model accuracy  (with local GN layers — Ditto/FedBN gain)
+    acc_local_fp32 : local model accuracy  (with local GN layers — FedBN personalisation gain)
     quantization_error: accuracy drop from INT8 dynamic quantisation
-
-    The two models differ because model_global has fresh GN weights (random init)
-    while model_local uses the locally-trained GN weights from the PrivacyEngine.
     """
     start_time = time.time()
 
     node_id     = context.node_config.get("partition-id", 0)
     num_clients = context.node_config.get("num-partitions", 10)
-    batch_size  = int(context.run_config.get("batch-size", 64))
+    rc          = context.run_config
+    batch_size  = int(rc.get("batch-size", 16))
 
     # Receive server weights (non-GN only)
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
@@ -166,20 +138,19 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     # EVAL 2 — Local model: inject server weights into the TRAINED model
     #   (keeps locally-trained GN weights → FedBN personalisation benefit)
-    if node_id in _privacy_engines:
-        _, net_dp, _, _ = _privacy_engines[node_id]
-        model_local = net_dp._module
+    if node_id in _local_models:
+        model_local = _local_models[node_id]["net"]
         local_state = model_local.state_dict()
         for k in local_state:
             if "gn" not in k and k in incoming_state_dict:
                 local_state[k] = incoming_state_dict[k].to(DEVICE)
         model_local.load_state_dict(local_state, strict=True)
+        testloader = _local_models[node_id]["testloader"]
     else:
         # Fallback before first training round
         model_local = model_global
-
-    _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                              batch_size=batch_size)
+        _, testloader = load_data(node_id=node_id, num_clients=num_clients,
+                                  batch_size=batch_size)
 
     _, acc_global     = test(model_global, testloader)
     _, acc_local_fp32 = test(model_local,  testloader)
@@ -207,7 +178,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         "eval_time":              float(eval_time),
         "quantized_model_size_mb": float(get_model_size(net_quantized)),
         "loss":                   float(loss_quantized),
-        "num-examples":           len(testloader.dataset),
+        "num-examples":           float(len(testloader.dataset)),
     }
 
     content = RecordDict({"metrics": MetricRecord(metrics)})
