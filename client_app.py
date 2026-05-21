@@ -14,25 +14,10 @@ from task import load_data, load_model, train, test, get_model_size, DEVICE
 
 app = ClientApp()
 
-# ── Per-client persistent state ───────────────────────────────────────────────
+# ── Per-client persistent state (context.state) ────────────────────────────────
 # Local models with their personal GroupNorm layers must live across rounds.
-_local_models: dict = {}   # node_id → { "net": net, "trainloader": trainloader, "testloader": testloader }
-
-
-def _get_or_init_local_model(node_id, num_clients, batch_size, alpha=0.0, seed=42):
-    """Return (or lazily create) the persistent local model and dataloaders for a client."""
-    if node_id not in _local_models:
-        net = load_model()
-        trainloader, testloader = load_data(
-            node_id=node_id, num_clients=num_clients,
-            batch_size=batch_size, alpha=alpha, seed=seed,
-        )
-        _local_models[node_id] = {
-            "net": net,
-            "trainloader": trainloader,
-            "testloader": testloader,
-        }
-    return _local_models[node_id]
+# We store them in context.state as "gn_weights" (an ArrayRecord) to persist
+# across different stateless Ray worker processes/actors.
 
 
 # ── Train ─────────────────────────────────────────────────────────────────────
@@ -64,22 +49,43 @@ def train_handler(msg: Message, context: Context) -> Message:
     # 1. Receive global weights — ArrayRecord → torch state dict
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
-    # 2. Get (or lazily create) persistent local model for this partition
-    state = _get_or_init_local_model(node_id, num_clients, batch_size, alpha, seed)
+    # 2. Load the data statelessly
+    trainloader, _, _ = load_data(
+        node_id=node_id, num_clients=num_clients,
+        batch_size=batch_size, alpha=alpha, seed=seed,
+    )
+
+    # 3. Instantiate fresh model and load local GN weights if present in context.state
+    net = load_model()
+    local_state = net.state_dict()
+
+    # Load persistent GroupNorm layers from context.state
+    has_persisted_gn = "gn_weights" in context.state
+    if has_persisted_gn:
+        gn_params = context.state["gn_weights"].to_torch_state_dict()
+        for k, v in gn_params.items():
+            local_state[k] = v.to(DEVICE)
 
     # Inject server weights into non-GN layers only (FedBN: GN stays local)
-    local_state = state["net"].state_dict()
     for k in local_state:
         if "gn" not in k and k in incoming_state_dict:
             local_state[k] = incoming_state_dict[k].to(DEVICE)
-    state["net"].load_state_dict(local_state, strict=True)
+    net.load_state_dict(local_state, strict=True)
 
-    # 3. Train
-    train(state["net"], state["trainloader"], epochs=epochs, lr=lr, momentum=momentum)
+    # Log state loading diagnostic
+    import os
+    print(f"[FIT PID {os.getpid()}] Client {node_id}: loaded_persisted_gn={has_persisted_gn}")
 
-    # 4. Return only non-GN weights (server aggregates only these)
+    # 4. Train
+    train(net, trainloader, epochs=epochs, lr=lr, momentum=momentum)
+
+    # 5. Persist the updated local GroupNorm weights back to context.state
+    gn_params = {k: v.cpu() for k, v in net.state_dict().items() if "gn" in k}
+    context.state["gn_weights"] = ArrayRecord(torch_state_dict=gn_params)
+
+    # 6. Return only non-GN weights (server aggregates only these)
     state_to_return = {
-        k: v.cpu() for k, v in state["net"].state_dict().items()
+        k: v.cpu() for k, v in net.state_dict().items()
         if "gn" not in k
     }
     model_record = ArrayRecord(torch_state_dict=state_to_return)
@@ -98,10 +104,10 @@ def train_handler(msg: Message, context: Context) -> Message:
         "fit_time":         float(fit_time),
         "peak_ram_mb":      float(peak_ram_mb),
         "comm_size_mb":     float(comm_size_mb),
-        "model_size_mb":    float(get_model_size(state["net"])),
+        "model_size_mb":    float(get_model_size(net)),
         "dp_epsilon":       0.0,
         "estimated_energy": float(estimated_energy),
-        "num-examples":     float(len(state["trainloader"].dataset)),
+        "num-examples":     float(len(trainloader.dataset)),
     }
 
     content = RecordDict({
@@ -132,6 +138,12 @@ def evaluate(msg: Message, context: Context) -> Message:
     # Receive server weights (non-GN only)
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
+    # Load testing data statelessly
+    _, testloader_global, testloader_local = load_data(
+        node_id=node_id, num_clients=num_clients,
+        batch_size=batch_size, alpha=alpha, seed=seed,
+    )
+
     # EVAL 1 — Global model: inject server weights into a fresh model
     #   (fresh model has random GN weights → purely global performance)
     model_global = load_model()
@@ -143,22 +155,30 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     # EVAL 2 — Local model: inject server weights into the TRAINED model
     #   (keeps locally-trained GN weights → FedBN personalisation benefit)
-    if node_id in _local_models:
-        model_local = _local_models[node_id]["net"]
-        local_state = model_local.state_dict()
-        for k in local_state:
-            if "gn" not in k and k in incoming_state_dict:
-                local_state[k] = incoming_state_dict[k].to(DEVICE)
-        model_local.load_state_dict(local_state, strict=True)
-        testloader = _local_models[node_id]["testloader"]
-    else:
-        # Fallback before first training round
-        model_local = model_global
-        _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                                  batch_size=batch_size, alpha=alpha, seed=seed)
+    model_local = load_model()
+    local_state = model_local.state_dict()
 
-    _, acc_global     = test(model_global, testloader)
-    _, acc_local_fp32 = test(model_local,  testloader)
+    # Load persistent GroupNorm layers from context.state
+    has_persisted_gn = "gn_weights" in context.state
+    if has_persisted_gn:
+        gn_params = context.state["gn_weights"].to_torch_state_dict()
+        for k, v in gn_params.items():
+            local_state[k] = v.to(DEVICE)
+
+    # Inject server weights into non-GN layers
+    for k in local_state:
+        if "gn" not in k and k in incoming_state_dict:
+            local_state[k] = incoming_state_dict[k].to(DEVICE)
+    model_local.load_state_dict(local_state, strict=True)
+
+    # Log state loading diagnostic
+    import os
+    print(f"[EVAL PID {os.getpid()}] Client {node_id}: loaded_persisted_gn={has_persisted_gn}")
+
+    _, acc_global            = test(model_global, testloader_global)  # global dist
+    _, acc_local_fp32        = test(model_local,  testloader_global)  # global dist
+    _, acc_local_on_local    = test(model_local,  testloader_local)   # local dist
+    _, acc_global_on_local   = test(model_global, testloader_local)   # local dist
 
     # EVAL 3 — INT8 dynamic quantisation (TinyML deployment proxy)
     net_cpu = load_model().cpu()
@@ -167,24 +187,29 @@ def evaluate(msg: Message, context: Context) -> Message:
         net_cpu, {torch.nn.Linear}, dtype=torch.qint8
     )
     loss_quantized, acc_quantized = test(
-        net_quantized, testloader, device=torch.device("cpu")
+        net_quantized, testloader_global, device=torch.device("cpu")
     )
 
-    eval_time           = time.time() - start_time
-    local_vs_global_gap = acc_local_fp32 - acc_global
-    quantization_error  = acc_local_fp32 - acc_quantized
+    eval_time                 = time.time() - start_time
+    local_vs_global_gap       = acc_local_fp32 - acc_global
+    local_vs_global_local_gap = acc_local_on_local - acc_global_on_local
+    quantization_error        = acc_local_fp32 - acc_quantized
 
     metrics = {
-        "accuracy":               float(acc_quantized),
-        "acc_global":             float(acc_global),
-        "acc_local_fp32":         float(acc_local_fp32),
-        "local_vs_global_gap":    float(local_vs_global_gap),
-        "quantization_error":     float(quantization_error),
-        "eval_time":              float(eval_time),
-        "quantized_model_size_mb": float(get_model_size(net_quantized)),
-        "loss":                   float(loss_quantized),
-        "num-examples":           float(len(testloader.dataset)),
+        "accuracy":                  float(acc_quantized),
+        "acc_global":                float(acc_global),
+        "acc_local_fp32":            float(acc_local_fp32),
+        "acc_local_on_local":        float(acc_local_on_local),
+        "acc_global_on_local":       float(acc_global_on_local),
+        "local_vs_global_gap":       float(local_vs_global_gap),
+        "local_vs_global_local_gap": float(local_vs_global_local_gap),
+        "quantization_error":        float(quantization_error),
+        "eval_time":                 float(eval_time),
+        "quantized_model_size_mb":   float(get_model_size(net_quantized)),
+        "loss":                      float(loss_quantized),
+        "num-examples":              float(len(testloader_global.dataset)),
     }
 
     content = RecordDict({"metrics": MetricRecord(metrics)})
     return Message(content=content, reply_to=msg)
+
