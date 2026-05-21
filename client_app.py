@@ -154,8 +154,13 @@ def train(msg: Message, context: Context) -> Message:
     # ✅ Correct ArrayRecord constructor — keyword argument required
     model_record = ArrayRecord(torch_state_dict=sparse_state)
 
-    comm_size_mb     = sum(v.nelement() * v.element_size()
-                           for v in sparse_state.values()) / (1024 * 1024)
+    # Effective sparse comm size: count only non-zero elements × element size.
+    # A dense tensor with 70% zeros still serialises at full size in ArrayRecord,
+    # but the *intended* uplink saving is what we measure here (mirrors COO cost).
+    comm_size_mb     = sum(
+        int((v != 0).sum()) * v.element_size()
+        for v in sparse_state.values()
+    ) / (1024 * 1024)
     _, peak_ram      = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     fit_time         = time.time() - start_time
