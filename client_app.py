@@ -91,10 +91,11 @@ def train(msg: Message, context: Context) -> Message:
         {k: v.to(DEVICE) for k, v in incoming.items()}, strict=True
     )
 
-    # ── 2. Re-sync local_net to current global weights (Ditto requirement) ────
-    state["local_net"].load_state_dict(
-        state["global_net"].state_dict()
-    )
+    # ── 2. Ditto: local_net keeps its weights from previous round ─────────────
+    # The proximal term in train_ditto() anchors local_net toward the current
+    # global weights. Do NOT reset local_net here — that would destroy the
+    # accumulated personalisation (was the bug causing local_vs_global_gap = 0).
+    # local_net is already initialised in _get_or_init_ditto_state for round 1.
 
     # ── 3. Train ──────────────────────────────────────────────────────────────
     _, state["local_net"] = train_ditto(
@@ -165,15 +166,15 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     _, acc_global = test(model_global, testloader)
 
-    # ── EVAL 2 — Local model ──────────────────────────────────────────────────
+    # ── EVAL 2 — Local (personalised) Ditto model ───────────────────────────
+    # For Ditto the local_net is the personalised model trained with the
+    # proximal term. We evaluate it AS-IS — NOT injecting global weights.
+    # Injecting global weights would erase the personalisation and make
+    # local_vs_global_gap always 0 (which was the bug).
     if node_id in _ditto_state:
         model_local = _ditto_state[node_id]["local_net"]
-        local_sd = model_local.state_dict()
-        for k, v in incoming.items():
-            local_sd[k] = v.to(DEVICE)
-        model_local.load_state_dict(local_sd, strict=True)
     else:
-        model_local = model_global
+        model_local = model_global   # fallback: no personal model yet
 
     _, acc_local_fp32 = test(model_local, testloader)
 
