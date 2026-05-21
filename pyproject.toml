@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pytorch-flwr"
 version = "1.0.0"
-description = "Federated Learning — FedBN Only (FedAvg)"
+description = "Federated Learning — FedGN Only (FedAvg + shared GroupNorm baseline)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -33,7 +33,7 @@ clientapp = "client_app:app"
 [tool.flwr.app.config]
 
 # ── Federation ────────────────────────────────────────────────────────────────
-num-server-rounds = 10         # Total number of FL rounds
+num-server-rounds = 1         # Total number of FL rounds
 
 # ── Local training (client-side) ──────────────────────────────────────────────
 local-epochs    = 2           # Local epochs per client per round
@@ -42,5 +42,5 @@ lr-local        = 0.01        # SGD learning rate for local training
 momentum        = 0.9         # SGD momentum
 
 # ── Data partitioning ─────────────────────────────────────────────────────────
-alpha           = 0.1         # Dirichlet concentration (0 = IID, 0.1 = very non-IID, 1.0 ≈ IID)
+alpha           = 0.3         # Dirichlet concentration (0 = IID, 0.1 = very non-IID, 1.0 ≈ IID)
 partition-seed  = 42          # Random seed for Dirichlet partition (reproducibility)
