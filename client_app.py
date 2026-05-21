@@ -131,10 +131,8 @@ def train(msg: Message, context: Context) -> Message:
         {k: v.to(DEVICE) for k, v in incoming.items()}, strict=True
     )
 
-    # ── 2. Re-sync local_net to current global weights (Ditto requirement) ────
-    state["local_net"].load_state_dict(
-        state["global_net"]._module.state_dict()
-    )
+    # ── 2. Ditto local model: weights are kept local and persistent across rounds,
+    # and only regularized towards the global weights via proximal mu.
 
     # ── 3. Train (persistent Opacus objects passed in — ε accumulates) ────────
     _, state["local_net"] = train_ditto_dp(
@@ -208,6 +206,8 @@ def evaluate(msg: Message, context: Context) -> Message:
     num_clients = context.node_config.get("num-partitions", 10)
     rc          = context.run_config
     batch_size  = int(rc.get("batch-size", 16))
+    alpha       = float(rc.get("alpha", 0.3))
+    seed        = int(rc.get("partition-seed", 42))
 
     # Receive server weights
     incoming = msg.content["arrays"].to_torch_state_dict()
@@ -223,7 +223,7 @@ def evaluate(msg: Message, context: Context) -> Message:
         testloader = _ditto_state[node_id]["testloader"]
     else:
         _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                                  batch_size=batch_size)
+                                  batch_size=batch_size, alpha=alpha, seed=seed)
 
     _, acc_global = test(model_global, testloader)
 
