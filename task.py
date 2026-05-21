@@ -212,7 +212,7 @@ if __name__ == "__main__":
     local_model  = load_model()
     local_model.load_state_dict(global_model.state_dict())
 
-    trainloader, testloader = load_data()
+    trainloader, testloader_global, testloader_local = load_data()
 
     global_optimizer = torch.optim.SGD(global_model.parameters(), lr=0.01, momentum=0.9)
 
@@ -223,5 +223,5 @@ if __name__ == "__main__":
     )
 
     print("Evaluating local model...")
-    loss, acc = test(local_model, testloader)
+    loss, acc = test(local_model, testloader_global)
     print(f"Loss: {loss:.4f}  |  Accuracy: {acc:.4f}")
