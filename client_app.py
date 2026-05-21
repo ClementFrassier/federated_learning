@@ -29,7 +29,8 @@ _ditto_state: dict = {}
 
 def _get_or_init_ditto_state(node_id, num_clients, batch_size,
                               noise_multiplier, max_grad_norm,
-                              lr_global, momentum_global):
+                              lr_global, momentum_global,
+                              alpha=0.3, seed=42):
     """Lazily create the persistent Ditto + DP objects for a client node.
     Called only once per node. Subsequent rounds reuse the same objects
     so the PrivacyEngine accumulates ε across the entire simulation.
@@ -40,7 +41,8 @@ def _get_or_init_ditto_state(node_id, num_clients, batch_size,
         local_net.load_state_dict(global_net.state_dict())
 
         trainloader, testloader = load_data(
-            node_id=node_id, num_clients=num_clients, batch_size=batch_size
+            node_id=node_id, num_clients=num_clients, batch_size=batch_size,
+            alpha=alpha, seed=seed,
         )
 
         pe        = PrivacyEngine()
@@ -83,6 +85,8 @@ def train(msg: Message, context: Context) -> Message:
     momentum_global  = float(rc.get("momentum",           0.9))
     noise_multiplier = float(rc.get("noise-multiplier",   1.8))
     max_grad_norm    = float(rc.get("max-grad-norm",      1.0))
+    alpha            = float(rc.get("alpha",              0.3))
+    seed             = int(rc.get("partition-seed",       42))
 
     # ── Per-round config from server (msg.content["config"]) ─────────────────
     cfg           = msg.content["config"]
@@ -96,7 +100,8 @@ def train(msg: Message, context: Context) -> Message:
     # ── Lazy init of persistent Ditto state ───────────────────────────────────
     state = _get_or_init_ditto_state(
         node_id, num_clients, batch_size,
-        noise_multiplier, max_grad_norm, lr_global, momentum_global
+        noise_multiplier, max_grad_norm, lr_global, momentum_global,
+        alpha=alpha, seed=seed,
     )
 
     # ── 1. Receive global weights from server → inject into global_net ────────

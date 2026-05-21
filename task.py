@@ -45,21 +45,48 @@ class Net(nn.Module):
 
 
 # ── Data Loading ──────────────────────────────────────────────────────────────
-def load_data(node_id: int = 0, num_clients: int = 10, batch_size: int = 32):
-    """Load FashionMNIST and return the IID partition for a given client.
+def load_data(node_id: int = 0, num_clients: int = 10, batch_size: int = 32,
+              alpha: float = 0.3, seed: int = 42):
+    """Load FashionMNIST with Dirichlet non-IID partitioning.
 
-    Training set is divided evenly: 60 000 / num_clients images per client.
-    The full test set (10 000 images) is used for evaluation.
+    Args:
+        node_id:     Client index (0 … num_clients-1).
+        num_clients: Total number of federated clients.
+        batch_size:  Mini-batch size for returned DataLoaders.
+        alpha:       Dirichlet concentration (lower = more heterogeneous).
+        seed:        RNG seed for reproducible partitioning.
+
+    Returns:
+        (trainloader, testloader) — testloader uses the full global test set.
     """
     trf = Compose([ToTensor(), Normalize((0.5,), (0.5,))])
     trainset = FashionMNIST("./data", train=True,  download=True, transform=trf)
     testset  = FashionMNIST("./data", train=False, download=True, transform=trf)
 
-    # Simple IID contiguous slice
-    n       = len(trainset) // num_clients
-    indices = list(range(node_id * n, (node_id + 1) * n))
-    client_trainset = torch.utils.data.Subset(trainset, indices)
+    if alpha <= 0.0:
+        # Fallback: uniform IID slice
+        n       = len(trainset) // num_clients
+        indices = list(range(node_id * n, (node_id + 1) * n))
+    else:
+        # Dirichlet non-IID partition
+        rng     = np.random.default_rng(seed)
+        labels  = np.array(trainset.targets)
+        n_classes = int(labels.max()) + 1
+        class_indices = [np.where(labels == c)[0] for c in range(n_classes)]
+        client_indices: list[list[int]] = [[] for _ in range(num_clients)]
+        for c_idx in class_indices:
+            proportions = rng.dirichlet(np.repeat(alpha, num_clients))
+            proportions = np.array([
+                p * (len(ci) < len(trainset) / num_clients)
+                for p, ci in zip(proportions, client_indices)
+            ])
+            proportions = proportions / proportions.sum()
+            splits      = (np.cumsum(proportions) * len(c_idx)).astype(int)[:-1]
+            for i, part in enumerate(np.split(c_idx, splits)):
+                client_indices[i].extend(part.tolist())
+        indices = client_indices[node_id]
 
+    client_trainset = torch.utils.data.Subset(trainset, indices)
     trainloader = DataLoader(client_trainset, batch_size=batch_size, shuffle=True)
     testloader  = DataLoader(testset,         batch_size=batch_size, shuffle=False)
     return trainloader, testloader
