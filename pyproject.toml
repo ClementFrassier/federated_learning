@@ -33,7 +33,7 @@ clientapp = "client_app:app"
 [tool.flwr.app.config]
 
 # ── Federation ────────────────────────────────────────────────────────────────
-num-server-rounds = 1         # Total number of FL rounds
+num-server-rounds = 10         # Total number of FL rounds
 
 # ── Local training (client-side) ──────────────────────────────────────────────
 local-epochs    = 2           # Local epochs per client per round
