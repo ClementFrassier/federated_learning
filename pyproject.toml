@@ -46,7 +46,7 @@ momentum        = 0.9         # SGD momentum (global and local optimisers)
 proximal-mu     = 0.3         # Proximal penalty weight µ (Ditto local objective)
 
 # ── Data partitioning ─────────────────────────────────────────────────────────
-alpha           = 0.1         # Dirichlet concentration (0 = IID, 0.1 = very non-IID, 1.0 ≈ IID)
+alpha           = 0.3       # Dirichlet concentration (0 = IID, 0.1 = very non-IID, 1.0 ≈ IID)
 partition-seed  = 42          # Random seed for Dirichlet partition (reproducibility)
 
 # ── FedYogi server optimiser ──────────────────────────────────────────────────
