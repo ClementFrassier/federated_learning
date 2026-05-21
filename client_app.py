@@ -139,7 +139,13 @@ def train(msg: Message, context: Context) -> Message:
     # ── 5. Build reply message ────────────────────────────────────────────────
     model_record = ArrayRecord(torch_state_dict=sparse_state_dict)
 
-    comm_size_mb     = sum(p.nbytes for p in sparse_params_to_return) / (1024 * 1024)
+    # Effective sparse comm size: count only non-zero elements × dtype size.
+    # p.nbytes counts all bytes including pruned zeros (dense), so it always
+    # equals the full model size regardless of sparsity_ratio.
+    comm_size_mb     = sum(
+        int(np.count_nonzero(p)) * p.itemsize
+        for p in sparse_params_to_return
+    ) / (1024 * 1024)
     _, peak_ram      = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     fit_time         = time.time() - start_time
