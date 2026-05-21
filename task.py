@@ -88,8 +88,34 @@ def load_data(
 
     client_trainset = torch.utils.data.Subset(trainset, indices)
     trainloader = DataLoader(client_trainset, batch_size=batch_size, shuffle=True)
-    testloader  = DataLoader(testset,         batch_size=batch_size, shuffle=False)
-    return trainloader, testloader
+
+    # ── Global testloader (full 10 k images — measures generalisation) ────────
+    testloader_global = DataLoader(testset, batch_size=batch_size, shuffle=False)
+
+    # ── Local testloader (same class distribution as trainset) ────────────────
+    # For personalisation-aware algorithms (Ditto) the local model should be
+    # evaluated on data that matches the client's own distribution.
+    # We sample test images proportionally to the class frequencies in trainset.
+    train_targets = np.array([trainset.targets[i] for i in indices])
+    test_targets  = np.array(testset.targets)
+    num_classes   = int(test_targets.max()) + 1
+
+    local_test_indices: list = []
+    for cls in range(num_classes):
+        cls_count = int((train_targets == cls).sum())
+        if cls_count == 0:
+            continue
+        cls_test_idx = np.where(test_targets == cls)[0]
+        # Sample proportionally (capped at available test images for that class)
+        n_local = min(cls_count, len(cls_test_idx))
+        rng_test = np.random.default_rng(seed + node_id + cls)   # deterministic
+        chosen = rng_test.choice(cls_test_idx, size=n_local, replace=False)
+        local_test_indices.extend(chosen.tolist())
+
+    local_testset  = torch.utils.data.Subset(testset, local_test_indices)
+    testloader_local = DataLoader(local_testset, batch_size=batch_size, shuffle=False)
+
+    return trainloader, testloader_global, testloader_local
 
 
 def load_model() -> Net:

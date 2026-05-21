@@ -36,7 +36,7 @@ def _get_or_init_ditto_state(node_id, num_clients, batch_size,
         local_net   = load_model()
         local_net.load_state_dict(global_net.state_dict())
 
-        trainloader, testloader = load_data(
+        trainloader, testloader_global, testloader_local = load_data(
             node_id=node_id, num_clients=num_clients,
             batch_size=batch_size, alpha=alpha, seed=seed,
         )
@@ -46,11 +46,12 @@ def _get_or_init_ditto_state(node_id, num_clients, batch_size,
         )
 
         _ditto_state[node_id] = {
-            "global_net": global_net,
-            "local_net":  local_net,
-            "optimizer":  optimizer,
-            "trainloader": trainloader,
-            "testloader": testloader,
+            "global_net":        global_net,
+            "local_net":         local_net,
+            "optimizer":         optimizer,
+            "trainloader":       trainloader,
+            "testloader_global": testloader_global,  # full 10k — generalisation
+            "testloader_local":  testloader_local,   # client distribution — personalisation
         }
 
     return _ditto_state[node_id]
@@ -159,24 +160,28 @@ def evaluate(msg: Message, context: Context) -> Message:
     )
 
     if node_id in _ditto_state:
-        testloader = _ditto_state[node_id]["testloader"]
+        testloader_global = _ditto_state[node_id]["testloader_global"]
+        testloader_local  = _ditto_state[node_id]["testloader_local"]
     else:
-        _, testloader = load_data(node_id=node_id, num_clients=num_clients,
-                                  batch_size=batch_size, alpha=alpha, seed=seed)
+        _, testloader_global, testloader_local = load_data(
+            node_id=node_id, num_clients=num_clients,
+            batch_size=batch_size, alpha=alpha, seed=seed)
 
-    _, acc_global = test(model_global, testloader)
+    _, acc_global = test(model_global, testloader_global)
 
-    # ── EVAL 2 — Local (personalised) Ditto model ───────────────────────────
-    # For Ditto the local_net is the personalised model trained with the
-    # proximal term. We evaluate it AS-IS — NOT injecting global weights.
-    # Injecting global weights would erase the personalisation and make
-    # local_vs_global_gap always 0 (which was the bug).
+    # ── EVAL 2 — Local (personalised) Ditto model ───────────────────────────────────
+    # Evaluate local model on LOCAL test distribution (client’s own classes).
+    # This is the scientifically correct metric for Ditto personalisation:
+    # the local model specialises on local data, so it must be evaluated on it.
+    # We also evaluate on global testset to maintain comparability with FedBN/FedGN.
     if node_id in _ditto_state:
         model_local = _ditto_state[node_id]["local_net"]
     else:
         model_local = model_global   # fallback: no personal model yet
 
-    _, acc_local_fp32 = test(model_local, testloader)
+    _, acc_local_fp32        = test(model_local, testloader_global)  # global dist
+    _, acc_local_on_local    = test(model_local, testloader_local)   # local dist
+    _, acc_global_on_local   = test(model_global, testloader_local)  # baseline
 
     # ── EVAL 3 — INT8 dynamic quantisation (TinyML proxy) ────────────────────
     net_cpu = type(model_local)().cpu()
@@ -185,23 +190,27 @@ def evaluate(msg: Message, context: Context) -> Message:
         net_cpu, {torch.nn.Linear}, dtype=torch.qint8
     )
     loss_quantized, acc_quantized = test(
-        net_quantized, testloader, device=torch.device("cpu")
+        net_quantized, testloader_global, device=torch.device("cpu")
     )
 
     eval_time           = time.time() - start_time
     local_vs_global_gap = acc_local_fp32 - acc_global
     quantization_error  = acc_local_fp32 - acc_quantized
+    local_vs_global_local_gap = acc_local_on_local - acc_global_on_local
 
     metrics = {
         "accuracy":               float(acc_quantized),
         "acc_global":             float(acc_global),
         "acc_local_fp32":         float(acc_local_fp32),
+        "acc_local_on_local":     float(acc_local_on_local),
+        "acc_global_on_local":    float(acc_global_on_local),
         "local_vs_global_gap":    float(local_vs_global_gap),
+        "local_vs_global_local_gap": float(local_vs_global_local_gap),
         "quantization_error":     float(quantization_error),
         "eval_time":              float(eval_time),
         "quantized_model_size_mb": float(get_model_size(net_quantized)),
         "loss":                   float(loss_quantized),
-        "num-examples":           float(len(testloader.dataset)),
+        "num-examples":           float(len(testloader_global.dataset)),
     }
 
     content = RecordDict({"metrics": MetricRecord(metrics)})
