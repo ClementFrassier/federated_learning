@@ -5,6 +5,7 @@ import time
 import tracemalloc
 import torch
 import torch.quantization
+import os
 from collections import OrderedDict
 
 from flwr.clientapp import ClientApp
@@ -72,9 +73,6 @@ def train_handler(msg: Message, context: Context) -> Message:
             local_state[k] = incoming_state_dict[k].to(DEVICE)
     net.load_state_dict(local_state, strict=True)
 
-    # Log state loading diagnostic
-    import os
-    print(f"[FIT PID {os.getpid()}] Client {node_id}: loaded_persisted_gn={has_persisted_gn}")
 
     # 4. Train
     train(net, trainloader, epochs=epochs, lr=lr, momentum=momentum)
@@ -171,9 +169,6 @@ def evaluate(msg: Message, context: Context) -> Message:
             local_state[k] = incoming_state_dict[k].to(DEVICE)
     model_local.load_state_dict(local_state, strict=True)
 
-    # Log state loading diagnostic
-    import os
-    print(f"[EVAL PID {os.getpid()}] Client {node_id}: loaded_persisted_gn={has_persisted_gn}")
 
     _, acc_global            = test(model_global, testloader_global)  # global dist
     _, acc_local_fp32        = test(model_local,  testloader_global)  # global dist
