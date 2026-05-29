@@ -203,11 +203,10 @@ def evaluate(msg: Message, context: Context) -> Message:
 
     # ── EVAL 2 — Local model (locally-trained GN → Ditto personalisation) ─────
     if node_id in _ditto_state:
+        # ✅ Utiliser le modèle local persistant tel quel (poids Ditto intacts)
+        # Ne pas écraser les poids locaux avec les poids globaux — cela annulerait
+        # la personnalisation Ditto.
         model_local = _ditto_state[node_id]["local_net"]
-        local_sd = model_local.state_dict()
-        for k, v in incoming.items():
-            local_sd[k] = v.to(DEVICE)
-        model_local.load_state_dict(local_sd, strict=True)
     else:
         model_local = model_global
 

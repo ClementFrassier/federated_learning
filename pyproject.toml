@@ -7,7 +7,7 @@ name = "pytorch-flwr"
 version = "1.0.0"
 description = "Federated Learning — Ditto + FedYogi + Stepwise-DP + SecAgg + Sparse"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
     "flwr[simulation]>=1.29.0",
