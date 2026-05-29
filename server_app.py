@@ -3,9 +3,13 @@ import os
 import torch
 from flwr.serverapp import ServerApp, Grid
 from flwr.serverapp.strategy import FedProx
-from flwr.common import Context, ConfigRecord, ArrayRecord, MetricRecord
+from flwr.app import Context, ConfigRecord, ArrayRecord, MetricRecord
 
 from task import Net
+
+CSV_DIR  = "resultsfeat"
+CSV_FILE = os.path.join(CSV_DIR, "results_fedProx+fedBN+standDP+SecAgg.csv")
+
 
 class MetricLogger:
     def __init__(self):
@@ -14,9 +18,11 @@ class MetricLogger:
 
 logger = MetricLogger()
 
-def write_to_csv(round_num, phase, metrics):
-    file_exists = os.path.isfile('results_fedProx+fedBN+standDP+SecAgg.csv')
-    with open('results_fedProx+fedBN+standDP+SecAgg.csv', mode='a', newline='') as f:
+def write_to_csv(round_num: int, phase: str, metrics: dict) -> None:
+    """Append one row per metric to the KPI CSV file."""
+    os.makedirs(CSV_DIR, exist_ok=True)
+    file_exists = os.path.isfile(CSV_FILE)
+    with open(CSV_FILE, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(['Round', 'Phase', 'Metric', 'Value'])
@@ -27,7 +33,7 @@ def train_metrics_aggr_fn(record_dicts, weighted_by):
     aggregated = {}
     if not record_dicts:
         return MetricRecord(aggregated)
-    metrics_list = [rd["metrics"] for rd in record_dicts]
+    metrics_list = [rd.metric_records["metrics"] for rd in record_dicts]
     for metric_name in metrics_list[0].keys():
         if metric_name == "num-examples":
             continue
@@ -46,7 +52,7 @@ def evaluate_metrics_aggregation_fn(record_dicts, weighted_by):
     if not record_dicts:
         return MetricRecord(aggregated)
         
-    metrics_list = [rd["metrics"] for rd in record_dicts]
+    metrics_list = [rd.metric_records["metrics"] for rd in record_dicts]
         
     accuracies = [m["num-examples"] * m["accuracy"] for m in metrics_list]
     total_num_examples = sum([m["num-examples"] for m in metrics_list])
