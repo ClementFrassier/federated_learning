@@ -1,24 +1,18 @@
-# ── Python cache ──────────────────────────────────────────────────────────────
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.pdb
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.env
 
-# ── Jupyter ────────────────────────────────────────────────────────────────────
-.ipynb_checkpoints/
-
-# ── FashionMNIST dataset (downloaded at runtime by task.py) ───────────────────
+# Données et modèles (trop lourds pour Git)
 data/
-
-# ── Flower internal state and simulation artefacts ────────────────────────────
-.flwr/
-state.db
-
-# ── Saved models ──────────────────────────────────────────────────────────────
 *.pt
 *.pth
 
-# ── Experiment results (generated at runtime) ─────────────────────────────────
+# Résultats d'expériences (générés à l'exécution)
 resultsfeat/
-results_*.csv
+
+# Flower
+.flwr/

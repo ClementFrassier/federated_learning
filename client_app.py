@@ -7,6 +7,7 @@ from collections import OrderedDict
 
 import torch
 import torch.quantization
+import os
 import numpy as np
 
 # ── Flower v2 Message API imports ─────────────────────────────────────────────
@@ -82,9 +83,6 @@ def train(msg: Message, context: Context) -> Message:
         # First round fallback: copy global weights
         local_net.load_state_dict(global_net.state_dict())
 
-    # Log state loading diagnostic
-    import os
-    print(f"[FIT PID {os.getpid()}] Client {node_id}: loaded_persisted_local={has_persisted_local}")
 
     # ── 3. Load the data statelessly ──────────────────────────────────────────
     trainloader, _, _ = load_data(
@@ -178,9 +176,6 @@ def evaluate(msg: Message, context: Context) -> Message:
     else:
         model_local.load_state_dict(model_global.state_dict())
 
-    # Log state loading diagnostic
-    import os
-    print(f"[EVAL PID {os.getpid()}] Client {node_id}: loaded_persisted_local={has_persisted_local}")
 
     _, acc_local_fp32        = test(model_local, testloader_global)  # global dist
     _, acc_local_on_local    = test(model_local, testloader_local)   # local dist
