@@ -8,7 +8,8 @@ from flwr.serverapp.strategy import FedAvg
 from task import Net
 
 # ── CSV logger ────────────────────────────────────────────────────────────────
-CSV_FILE = "results_ditto-quant-ldp-sparse.csv"
+CSV_DIR  = "resultsfeat"
+CSV_FILE = os.path.join(CSV_DIR, "results_ditto-quant-ldp-sparse.csv")
 
 
 class MetricLogger:
@@ -16,7 +17,8 @@ class MetricLogger:
     def __init__(self):
         self.fit_round  = 1
         self.eval_round = 1
-        # Reset the CSV at the start of every run to avoid duplicate rows
+        # Créer le dossier et reset le CSV au démarrage
+        os.makedirs(CSV_DIR, exist_ok=True)
         if os.path.isfile(CSV_FILE):
             os.remove(CSV_FILE)
 
@@ -42,7 +44,7 @@ def fit_metrics_aggregation_fn(record_dicts: list[RecordDict], weighted_by: str)
     if not record_dicts:
         return MetricRecord(aggregated)
 
-    metrics_list = [rd["metrics"] for rd in record_dicts]
+    metrics_list = [rd.metric_records["metrics"] for rd in record_dicts]
     for metric_name in metrics_list[0].keys():
         aggregated[metric_name] = (
             sum(m[metric_name] for m in metrics_list) / len(metrics_list)
@@ -63,7 +65,7 @@ def evaluate_metrics_aggregation_fn(record_dicts: list[RecordDict], weighted_by:
     if not record_dicts:
         return MetricRecord(aggregated)
 
-    metrics_list = [rd["metrics"] for rd in record_dicts]
+    metrics_list = [rd.metric_records["metrics"] for rd in record_dicts]
 
     # Weighted average for accuracy
     total_examples = sum(m["num-examples"] for m in metrics_list)
