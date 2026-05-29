@@ -10,7 +10,7 @@ from collections import OrderedDict
 from opacus import PrivacyEngine
 
 from flwr.clientapp import ClientApp
-from flwr.common import Context, Message, RecordDict, ArrayRecord, MetricRecord
+from flwr.app import Context, Message, RecordDict, ArrayRecord, MetricRecord
 
 from task import load_data, load_model, train_fedprox_dp, test, get_model_size, DEVICE
 
