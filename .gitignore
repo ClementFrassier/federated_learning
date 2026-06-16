@@ -13,3 +13,12 @@ __pycache__/
 # Flower SQLite state and logs (si utilisation ultérieure)
 .flwr/
 state.db
+
+# Dataset & Preprocessed cache
+data_nurse/processed/
+data_nurse/merged_data.csv
+data_nurse/archive.zip
+
+# Results and local models
+resultsfeat/
+*.pt

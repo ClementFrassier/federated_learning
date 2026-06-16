@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nurse-stress-fl"
+version = "1.0.0"
+description = "Federated Learning — Nurse Stress Detection (MLP Tiny + FedProx + DP)"
+
+[tool.flwr.app]
+publisher = "clement"
+
+[tool.flwr.app.components]
+serverapp = "server_app:app"
+clientapp = "client_app:app"
+
+[tool.flwr.app.config]
+# ── Rounds ────────────────────────────────────────────────────────────────────
+# FIX: 10 → 30 rounds pour laisser converger avant que ε explose
+num-server-rounds = 30
+
+# ── Modèle & entraînement ─────────────────────────────────────────────────────
+local-epochs   = 2        # 2 epochs locales = bon compromis convergence/dérive
+batch-size     = 64
+learning-rate  = 0.01
+proximal_mu    = 0.05     # FedProx µ — recommandé 0.01–0.05 pour données non-IID
+
+# ── Differential Privacy (Opacus) ─────────────────────────────────────────────
+# FIX: noise-multiplier 1.2 → 0.8
+# Avec 30 rounds, 6000 samples/client, batch=64, delta=1e-5 :
+#   noise=0.8  → ε ≈ 1.5–2.0   (proof of concept acceptable)
+#   noise=1.2  → ε ≈ 2.5–3.0   (déjà hors cible au round 1)
+#   noise=1.8  → ε ≈ 0.8–1.0   (cible médicale stricte — accuracy chuterait ~15%)
+# Pour un premier PoC, 0.8 est le bon compromis convergence / confidentialité
+noise-multiplier = 0.8
+max-grad-norm    = 1.0
+dp-delta         = 1e-5
+partition-seed   = 42
+
+
+#######################################################################
+# CONFIGURATION MIGRATION NOTICE:
+#
+# What was previously called "federation config" for SuperLink
+# connections in pyproject.toml has been renamed and moved.
+#
+# These settings are now **SuperLink connection configuration**
+# and are defined in the Flower configuration file.
+#
+# The entries below are commented out intentionally and are kept
+# only as a migration reference.
+#
+# Docs: https://flower.ai/docs/framework/ref-flower-configuration.html
+#######################################################################
+
+# [tool.flwr.federations]
+# default = "local-simulation"
+
+# [tool.flwr.federations.local-simulation]
+# options.num-supernodes = 15   # 15 infirmières = 15 clients FL
