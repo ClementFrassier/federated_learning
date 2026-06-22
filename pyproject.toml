@@ -23,6 +23,7 @@ num-server-rounds = 30
 local-epochs   = 2        # 2 epochs locales = bon compromis convergence/dérive
 batch-size     = 64
 learning-rate  = 0.01
+momentum       = 0.9      # SGD momentum
 proximal_mu    = 0.05     # FedProx µ — recommandé 0.01–0.05 pour données non-IID
 
 # ── Differential Privacy (Opacus) ─────────────────────────────────────────────

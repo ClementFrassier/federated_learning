@@ -27,6 +27,8 @@ _local_weights: dict = {}  # { node_id: state_dict after local training }
 def _get_or_init_privacy_engine(
     node_id: int,
     batch_size: int,
+    lr: float,
+    momentum: float,
     noise_multiplier: float,
     max_grad_norm: float,
     seed: int = 42,
@@ -39,7 +41,7 @@ def _get_or_init_privacy_engine(
         net            = load_model()
         trainloader, _ = load_data(node_id=node_id, batch_size=batch_size, seed=seed)
         privacy_engine = PrivacyEngine()
-        optimizer      = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
+        optimizer      = torch.optim.SGD(net.parameters(), lr=lr, momentum=momentum)
         net_dp, opt_dp, loader_dp = privacy_engine.make_private(
             module=net,
             optimizer=optimizer,
@@ -59,6 +61,8 @@ def train(msg: Message, context: Context) -> Message:
 
     node_id       = context.node_config.get("partition-id", 0)
     batch_size    = int(context.run_config.get("batch-size",        64))
+    lr            = float(context.run_config.get("learning-rate",   0.01))
+    momentum      = float(context.run_config.get("momentum",        0.9))
     mu            = float(context.run_config.get("proximal_mu",    0.05))
     epochs        = int(context.run_config.get("local-epochs",       2))
     noise_mult    = float(context.run_config.get("noise-multiplier", 0.8))  # FIX: 1.2 → 0.8
@@ -69,7 +73,7 @@ def train(msg: Message, context: Context) -> Message:
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
     privacy_engine, net_dp, opt_dp, loader_dp = _get_or_init_privacy_engine(
-        node_id, batch_size, noise_mult, max_grad_norm, seed
+        node_id, batch_size, lr, momentum, noise_mult, max_grad_norm, seed
     )
 
     local_state = net_dp._module.state_dict()

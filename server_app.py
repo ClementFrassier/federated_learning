@@ -106,7 +106,7 @@ def main(grid: Grid, context: Context) -> None:
     Federated training orchestration.
 
     Strategy: FedProx
-      - Handles non-IID data across the 14 nurses with a proximal term
+      - Handles non-IID data across the 15 nurses with a proximal term
       - All weights are aggregated (no FedBN exclusion needed for MLP)
     """
     num_rounds  = int(context.run_config.get("num-server-rounds", 5))
