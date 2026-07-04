@@ -5,7 +5,7 @@ from flwr.serverapp import ServerApp, Grid
 from flwr.serverapp.strategy import FedProx
 from flwr.app import Context, ConfigRecord, ArrayRecord, MetricRecord
 
-from task import Net
+from task import load_model, NetFedRepScaffold
 
 CSV_DIR  = "resultsfeat"
 CSV_FILE = os.path.join(CSV_DIR, "results_nurse_mlp_tiny.csv")
@@ -22,9 +22,11 @@ logger = MetricLogger()
 
 def write_to_csv(round_num: int, phase: str, metrics: dict) -> None:
     """Append one row per metric to the KPI CSV file."""
-    os.makedirs(CSV_DIR, exist_ok=True)
-    file_exists = os.path.isfile(CSV_FILE)
-    with open(CSV_FILE, mode="a", newline="") as f:
+    csv_file = getattr(logger, "csv_file", CSV_FILE)
+    csv_dir = os.path.dirname(csv_file)
+    os.makedirs(csv_dir, exist_ok=True)
+    file_exists = os.path.isfile(csv_file)
+    with open(csv_file, mode="a", newline="") as f:
         writer = csv.writer(f)
         if not file_exists:
             writer.writerow(["Round", "Phase", "Metric", "Value"])
@@ -111,14 +113,70 @@ def main(grid: Grid, context: Context) -> None:
     """
     num_rounds  = int(context.run_config.get("num-server-rounds", 5))
     proximal_mu = float(context.run_config.get("proximal_mu",     0.05))
+    seed        = int(context.run_config.get("partition-seed",   42))
+    sigma       = float(context.run_config.get("noise-multiplier", 0.8))
+    model_type  = context.run_config.get("model-type", "tiny")
+    dp_enabled  = str(context.run_config.get("dp-enabled", True)).lower() != "false"
+    excluded_node_id = int(context.run_config.get("excluded-node-id", -1))
+    loss_type   = context.run_config.get("loss-type", "ce")
+    personalization_mode = context.run_config.get("personalization-mode", "none")
+    test_dir    = os.environ.get("FLWR_TEST_DIR", None)
+
+    # Target output file path using absolute path of the workspace to avoid Ray cache path issues
+    base_results_dir = "/home/clement/projet/flwr/pytorch_flwr/resultsfeat"
+    if model_type == "medium":
+        csv_file = os.path.join(base_results_dir, "ablation_model_size", f"seed{seed}_sigma{sigma:.1f}.csv")
+    elif test_dir or seed == 999:
+        csv_file = os.path.join(base_results_dir, "test", f"seed{seed}_sigma{sigma:.1f}.csv")
+    elif not dp_enabled:
+        csv_file = os.path.join(base_results_dir, "ablation_no_dp", f"seed{seed}.csv")
+    elif personalization_mode == "fedper" and excluded_node_id >= 0:
+        csv_file = os.path.join(base_results_dir, f"ablation_fedper_leave_out_client{excluded_node_id}", f"seed{seed}.csv")
+    elif personalization_mode == "fedrep_scaffold" and excluded_node_id >= 0:
+        csv_file = os.path.join(base_results_dir, f"ablation_fedrep_scaffold_leave_out_client{excluded_node_id}", f"seed{seed}.csv")
+    elif excluded_node_id >= 0:
+        csv_file = os.path.join(base_results_dir, f"ablation_leave_out_client{excluded_node_id}", f"seed{seed}.csv")
+    elif personalization_mode == "fedper":
+        csv_file = os.path.join(base_results_dir, "ablation_fedper", f"seed{seed}_sigma{sigma:.1f}.csv")
+    elif personalization_mode == "fedrep_scaffold":
+        csv_file = os.path.join(base_results_dir, "ablation_fedrep_scaffold", f"seed{seed}_sigma{sigma:.1f}.csv")
+    elif loss_type == "weighted_ce":
+        csv_file = os.path.join(base_results_dir, "ablation_weighted_loss", f"seed{seed}.csv")
+    else:
+        csv_file = os.path.join(base_results_dir, "grid_fl", f"seed{seed}_sigma{sigma:.1f}.csv")
+
+    csv_dir = os.path.dirname(csv_file)
+    os.makedirs(csv_dir, exist_ok=True)
+
+    if os.path.exists(csv_file):
+        print(f"[WARNING] {os.path.basename(csv_file)} already exists and will be overwritten")
+        os.remove(csv_file)
+
+    logger.csv_file = csv_file
 
     # Initialise global model — all parameters sent to clients
-    global_model  = Net()
-    global_params = {k: v.cpu() for k, v in global_model.state_dict().items()}
-    arrays        = ArrayRecord(torch_state_dict=global_params)
+    if personalization_mode == "fedrep_scaffold":
+        # Distinct architecture (extractor/head split) — see task.py. Only the
+        # extractor is meaningfully aggregated; the head keys are absent from
+        # client replies so they naturally disappear from the aggregate after
+        # round 1 regardless of what's in this initial broadcast.
+        global_model  = NetFedRepScaffold()
+        global_params = {k: v.cpu() for k, v in global_model.extractor.state_dict().items()}
+    else:
+        global_model  = load_model(model_type)
+        global_params = {k: v.cpu() for k, v in global_model.state_dict().items()}
+    arrays = ArrayRecord(torch_state_dict=global_params)
+
+    # SCAFFOLD replaces FedProx's proximal term as the drift-correction
+    # mechanism for the shared extractor — combining both would confound two
+    # competing corrections (see report for the reasoning). mu=0 here makes
+    # this explicit at the server level too, even though train_fedprox_dp
+    # (which reads proximal_mu) is never called by this mode's dedicated
+    # client-side training path either way.
+    effective_mu = 0.0 if personalization_mode == "fedrep_scaffold" else proximal_mu
 
     strategy = FedProx(
-        proximal_mu=proximal_mu,
+        proximal_mu=effective_mu,
         train_metrics_aggr_fn=train_metrics_aggr_fn,
         evaluate_metrics_aggr_fn=evaluate_metrics_aggregation_fn,
     )
@@ -133,4 +191,8 @@ def main(grid: Grid, context: Context) -> None:
     # Save the final aggregated model
     print("\nSaving final model to 'final_model_nurse.pt'...")
     torch.save(result.arrays.to_torch_state_dict(), "final_model_nurse.pt")
-    print(f"Done! FL results saved to '{CSV_FILE}'")
+    
+    unique_model_file = csv_file.replace(".csv", ".pt")
+    print(f"Saving run-specific model checkpoint to '{unique_model_file}'...")
+    torch.save(result.arrays.to_torch_state_dict(), unique_model_file)
+    print(f"Done! FL results saved to '{logger.csv_file}'")

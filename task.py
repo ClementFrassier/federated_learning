@@ -56,6 +56,54 @@ class Net(nn.Module):
         return self.fc3(x)
 
 
+class NetMedium(nn.Module):
+    """
+    MLP Medium — 10x larger model (~13,000 parameters) to isolate model size effects.
+    Architecture: FC(24 → 128) → ReLU → FC(128 → 64) → ReLU → FC(64 → 32) → ReLU → FC(32 → 2)
+    """
+
+    def __init__(self, input_dim: int = N_STAT_FEAT) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(input_dim, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, 2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = F.relu(self.fc3(x))
+        return self.fc4(x)
+
+
+class NetFedRepScaffold(nn.Module):
+    """
+    Dedicated architecture for the "best architecture ignoring TinyML, security
+    constraints only" experiment: same-size shared extractor as Net (fc1/fc2,
+    aggregated globally, DP-SGD applied here only), multi-layer local head
+    (never transmitted, no DP noise) instead of FedPer's single linear layer.
+
+    Deliberately NOT reusing Net's layer names (fc1/fc2/fc3) — this is a
+    self-contained architecture with its own extractor/head submodules, so DP
+    and SCAFFOLD can target the extractor specifically. Not comparable to Net
+    for TinyML deployment purposes (see report caveat).
+    """
+
+    def __init__(self, input_dim: int = N_STAT_FEAT, head_hidden: int = 16) -> None:
+        super().__init__()
+        self.extractor = nn.Sequential(
+            nn.Linear(input_dim, 32), nn.ReLU(),
+            nn.Linear(32, 16), nn.ReLU(),
+        )
+        self.head = nn.Sequential(
+            nn.Linear(16, head_hidden), nn.ReLU(),
+            nn.Linear(head_hidden, 2),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.extractor(x))
+
+
 # ── Caching system to prevent Ray OOM (Out Of Memory) ─────────────────────────
 PROCESSED_DIR = "data_nurse/processed"
 
@@ -68,7 +116,7 @@ def preprocess_if_needed() -> list:
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     client_ids_path = os.path.join(PROCESSED_DIR, "client_ids.pt")
 
-    # If client_ids.pt exists and all 15 client files exist, load and return
+    # If client_ids.pt exists and all 14 client files exist, load and return
     if os.path.exists(client_ids_path):
         try:
             client_ids = torch.load(client_ids_path, weights_only=False)
@@ -90,7 +138,12 @@ def preprocess_if_needed() -> list:
     )
     df["id"] = df["id"].astype(str)
     df["label"] = pd.to_numeric(df["label"], errors="coerce")
-    df = df[df["label"].isin([0, 1])].reset_index(drop=True)
+    df = df[df["label"].isin([0, 1, 2])].reset_index(drop=True)
+    # Binary recombination: raw label 0 = no-stress (18.8%), 1 = low-stress (7.0%),
+    # 2 = high-stress (74.2%) — see Abu-Samah et al. 2025. Low + high stress are
+    # merged into a single "stress" class (1) so the task uses the full dataset
+    # instead of discarding the high-stress majority class.
+    df["label"] = (df["label"] > 0).astype(int)
     df[FEATURES] = df[FEATURES].apply(pd.to_numeric, errors="coerce")
     df = df.dropna(subset=FEATURES + ["label"]).reset_index(drop=True)
 
@@ -118,7 +171,9 @@ def _ensure_global_data_loaded() -> tuple[pd.DataFrame, list]:
         )
         df["id"] = df["id"].astype(str)
         df["label"] = pd.to_numeric(df["label"], errors="coerce")
-        df = df[df["label"].isin([0, 1])].reset_index(drop=True)
+        df = df[df["label"].isin([0, 1, 2])].reset_index(drop=True)
+        # Binary recombination: see preprocess_if_needed() for details.
+        df["label"] = (df["label"] > 0).astype(int)
         df[FEATURES] = df[FEATURES].apply(pd.to_numeric, errors="coerce")
         df = df.dropna(subset=FEATURES + ["label"]).reset_index(drop=True)
         _global_df = df
@@ -164,6 +219,22 @@ def load_data(
     """
     Loads data for an FL device (simulated smart wristband).
     Loads from preprocessed file to save memory and avoid OOM.
+
+    SPLIT STRATEGY — Temporal (chronological), NOT random permutation.
+    ─────────────────────────────────────────────────────────────────
+    Sliding windows with 50% overlap (WINDOW_SIZE=60, STEP_SIZE=30) share
+    30 raw samples between consecutive windows. A random permutation split
+    places window i in train and window i+1 in test, leaking 50% of raw
+    test samples into training → inflated accuracy (~94% contamination rate
+    measured empirically on this dataset, see check_leakage.py).
+
+    The temporal split eliminates this:
+      - Train : first (1 − test_split) fraction of windows in chronological order
+      - Gap   : 2 windows excluded (= WINDOW_SIZE raw samples, no overlap possible)
+      - Test  : remaining last windows in chronological order
+
+    The `seed` argument is kept for API compatibility but no longer controls
+    the split — results are fully deterministic across seeds.
     """
     client_ids = preprocess_if_needed()
     if node_id >= len(client_ids):
@@ -173,18 +244,23 @@ def load_data(
 
     # Load from cached preprocessed file
     X, y = torch.load(os.path.join(PROCESSED_DIR, f"client_{node_id}.pt"), weights_only=False)
+    n_total = len(X)
 
-    # Local standardization on the device (pure NumPy)
-    mean = X.mean(axis=0)
-    std  = X.std(axis=0)
+    # ── Temporal split with gap (zero leakage guaranteed) ─────────────────────
+    gap_windows = max(2, WINDOW_SIZE // STEP_SIZE)   # = 2 windows = 60 raw samples
+    n_train     = max(1, int(n_total * (1.0 - test_split)))
+    n_test      = max(1, n_total - n_train - gap_windows)
+
+    train_idx = np.arange(n_train)
+    test_idx  = np.arange(n_train + gap_windows, n_train + gap_windows + n_test)
+
+    # Local standardization on the device (pure NumPy) — fit on TRAIN only,
+    # then applied to both train and test, to avoid target leakage into the
+    # standardization statistics (mirrors baseline_centralized.py).
+    mean = X[train_idx].mean(axis=0)
+    std  = X[train_idx].std(axis=0)
     std[std == 0] = 1.0
     X = ((X - mean) / std).astype(np.float32)
-
-    # Reproducible split
-    rng    = np.random.default_rng(seed)
-    idx    = rng.permutation(len(X))
-    n_test = max(1, int(len(X) * test_split))
-    test_idx, train_idx = idx[:n_test], idx[n_test:]
 
     def _make_loader(indices: np.ndarray, shuffle: bool) -> DataLoader:
         X_t = torch.from_numpy(X[indices])
@@ -194,8 +270,10 @@ def load_data(
     return _make_loader(train_idx, shuffle=True), _make_loader(test_idx, shuffle=False)
 
 
-def load_model() -> Net:
-    """Instantiate a fresh Net and move it to the available device."""
+def load_model(model_type: str = "tiny") -> nn.Module:
+    """Instantiate a fresh model (Net or NetMedium) and move it to the available device."""
+    if model_type == "medium":
+        return NetMedium().to(DEVICE)
     return Net().to(DEVICE)
 
 
@@ -206,6 +284,57 @@ def get_model_size(model: nn.Module) -> float:
     return (param_size + buffer_size) / 1024 ** 2
 
 
+# ── Global class weights (for the weighted-loss ablation) ─────────────────────
+_global_class_weights = None
+
+
+def get_global_class_weights() -> torch.Tensor:
+    """
+    Inverse-frequency class weights (0=no-stress, 1=stress), computed once from
+    the pooled TRAIN partitions of all clients' cached windows and cached for
+    reuse. Used only by the weighted-loss ablation (loss-type=weighted_ce).
+    """
+    global _global_class_weights
+    if _global_class_weights is None:
+        client_ids = preprocess_if_needed()
+        counts = np.zeros(2, dtype=np.int64)
+        for node_id in range(len(client_ids)):
+            X, y = torch.load(os.path.join(PROCESSED_DIR, f"client_{node_id}.pt"), weights_only=False)
+            n_train = max(1, int(len(X) * 0.8))
+            y_train = y[:n_train]
+            for c in (0, 1):
+                counts[c] += int((y_train == c).sum())
+        weights = counts.sum() / (2 * counts)
+        _global_class_weights = torch.tensor(weights, dtype=torch.float32)
+    return _global_class_weights
+
+
+# ── Total train-set size across all clients (for SCAFFOLD's c_global rescaling) ─
+_total_train_examples = None
+
+
+def get_total_train_examples() -> int:
+    """
+    Sum of local TRAIN-partition sizes across all clients, computed once and
+    cached. Same pattern and same transparency note as get_global_class_weights():
+    an aggregate, non-sensitive statistic (dataset size, not content), used only
+    by the FedRep+SCAFFOLD experiment (personalization-mode=fedrep_scaffold) to
+    rescale each client's control-variate update before transmission, so that
+    Flower's native num-examples-weighted aggregation reconstructs SCAFFOLD's
+    canonical unweighted average of c_i across clients instead of a
+    size-weighted one (see report for the reasoning).
+    """
+    global _total_train_examples
+    if _total_train_examples is None:
+        client_ids = preprocess_if_needed()
+        total = 0
+        for node_id in range(len(client_ids)):
+            X, _ = torch.load(os.path.join(PROCESSED_DIR, f"client_{node_id}.pt"), weights_only=False)
+            total += max(1, int(len(X) * 0.8))
+        _total_train_examples = total
+    return _total_train_examples
+
+
 # ── FedProx + DP-SGD training ─────────────────────────────────────────────────
 def train_fedprox_dp(
     net_dp,
@@ -214,6 +343,7 @@ def train_fedprox_dp(
     global_params_on_device: dict,
     epochs: int,
     mu: float = 0.05,
+    class_weights: torch.Tensor | None = None,
 ) -> None:
     """
     Local training on the device — one FL round (FedProx + DP-SGD).
@@ -233,8 +363,11 @@ def train_fedprox_dp(
         global_params_on_device: Server weight snapshot used for FedProx penalty.
         epochs:                  Number of local training epochs per round.
         mu:                      FedProx proximal penalty weight µ.
+        class_weights:           Optional per-class loss weights (weighted-loss ablation).
     """
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(
+        weight=class_weights.to(DEVICE) if class_weights is not None else None
+    )
     net_dp.train()
 
     for _ in range(epochs):

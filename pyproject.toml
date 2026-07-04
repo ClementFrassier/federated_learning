@@ -37,6 +37,14 @@ noise-multiplier = 0.8
 max-grad-norm    = 1.0
 dp-delta         = 1e-5
 partition-seed   = 42
+model-type       = "tiny"
+
+# ── Ablations (désactivées par défaut, activées via --run-config) ─────────────
+dp-enabled       = true   # false = FedProx sans DP-SGD (isole le coût du DP seul)
+excluded-node-id = -1     # >=0 = ce client ne contribue jamais à l'entraînement (simule un nouvel arrivant)
+loss-type        = "ce"   # "weighted_ce" = loss pondérée par classe (déséquilibre inverse global)
+personalization-mode = "none"  # "fedper" = fc1/fc2 agrégés globalement, fc3 (tête) jamais transmise/agrégée
+                                # "fedrep_scaffold" = tête multi-couches + DP restreint à l'extracteur + SCAFFOLD (hors contrainte TinyML)
 
 
 #######################################################################
