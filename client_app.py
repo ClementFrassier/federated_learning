@@ -21,13 +21,15 @@ from task import (
 
 app = ClientApp()
 
+RESULTS_DIR = "resultsfeat"
+
 # ── Per-client persistent Opacus state ───────────────────────────────────────
 # Dict layout:  { (node_id, model_type): (PrivacyEngine, net_dp, opt_dp, loader_dp) }
 _privacy_engines: dict = {}
 
-# FIX: store locally trained weights separately for evaluate()
-# Previously, evaluate() overwrote local weights with server weights,
-# causing local_vs_global_gap to always be 0.0 (bug)
+# Locally trained weights, kept separately from the server broadcast so that
+# evaluate()'s "local" model reflects this client's own post-training state
+# rather than being silently overwritten by the incoming global weights.
 _local_weights: dict = {}  # { node_id: state_dict after local training }
 
 # ── FedRep+SCAFFOLD state (personalization-mode=fedrep_scaffold) ─────────────
@@ -213,10 +215,9 @@ def _train_fedrep_scaffold(msg: Message, context: Context, node_id: int, start_t
             # BEFORE the actual parameter update (verified against installed
             # Opacus source, see plan).
             if opt_extractor_dp.pre_step():
-                # FIX (found during the grid run, not the 3-round smoke test):
-                # the raw gradient is bounded by DP-SGD clipping (max_grad_norm),
+                # The raw gradient is bounded by DP-SGD clipping (max_grad_norm),
                 # but the SCAFFOLD correction (c_global - c_i) is not — c_i
-                # accumulates round over round and the unbounded correction
+                # accumulates round over round and an unbounded correction
                 # quickly dominates the DP-protected (deliberately tiny) signal,
                 # a positive-feedback loop that diverges to NaN within a few
                 # rounds. Clip the correction's global L2 norm to max_grad_norm
@@ -248,20 +249,13 @@ def _train_fedrep_scaffold(msg: Message, context: Context, node_id: int, start_t
     dp_epsilon = privacy_engine.get_epsilon(delta=dp_delta)
 
     # SCAFFOLD "option 2" client control-variate update.
-    K = n_local_steps  # nombre reel de pas d'optimiseur locaux (batches x epochs)
+    K = n_local_steps  # real number of local optimizer steps (batches x epochs)
     extractor_after = _underlying_module(extractor_dp).state_dict()
     new_c_i = {}
     for name in c_i:
         delta_w = (extractor_before[name] - extractor_after[name]) / (K * lr)
         new_c_i[name] = c_i[name] - c_global.get(name, torch.zeros_like(c_i[name])) + delta_w
     state["c_i"] = new_c_i
-
-    c_i_norm = float(torch.sqrt(sum((v ** 2).sum() for v in new_c_i.values())))
-    grad_norm = float(torch.sqrt(sum(
-        (p.grad ** 2).sum() for p in _underlying_module(extractor_dp).parameters() if p.grad is not None
-    )))
-    print(f"[SCAFFOLD DEBUG] node_id={node_id}: ||c_i||={c_i_norm:.6f}  "
-          f"||grad_extracteur(dernier batch)||={grad_norm:.6f}  K={K}")
 
     # Persist full local state (extractor.*+head.* keys, matching
     # NetFedRepScaffold's own state_dict() naming) to disk and in memory for
@@ -270,14 +264,11 @@ def _train_fedrep_scaffold(msg: Message, context: Context, node_id: int, start_t
     full_local_state.update({f"head.{k}": v.cpu().clone() for k, v in model.head.state_dict().items()})
     _fedrep_scaffold_local_full[node_id] = full_local_state
 
-    base_dir = "/home/clement/projet/flwr/pytorch_flwr/resultsfeat"
-    out_dir = os.path.join(base_dir, "ablation_fedrep_scaffold_heads")
+    out_dir = os.path.join(RESULTS_DIR, "ablation_fedrep_scaffold_heads")
     os.makedirs(out_dir, exist_ok=True)
-    # BUG FIX: sigma must be part of the filename — the main grid reuses the
-    # same 5 seeds across 5 sigma values, and without sigma in the name each
-    # new sigma silently overwrote the previous one's head files on disk
-    # (found only at the end of the first full grid run, after 4/5 sigma
-    # values' heads had already been overwritten).
+    # sigma must be part of the filename: the grid reuses the same 5 seeds
+    # across 5 sigma values, so a seed-only filename would silently overwrite
+    # each sigma's head file with the next one's.
     torch.save(full_local_state, os.path.join(out_dir, f"seed{seed}_sigma{noise_mult:.1f}_client{node_id}.pt"))
 
     # SCAFFOLD c_global rescaling: aggregate_arrayrecords weighs by num-examples
@@ -379,7 +370,7 @@ def train(msg: Message, context: Context) -> Message:
     momentum      = float(context.run_config.get("momentum",        0.9))
     mu            = float(context.run_config.get("proximal_mu",    0.05))
     epochs        = int(context.run_config.get("local-epochs",       2))
-    noise_mult    = float(context.run_config.get("noise-multiplier", 0.8))  # FIX: 1.2 → 0.8
+    noise_mult    = float(context.run_config.get("noise-multiplier", 0.8))
     max_grad_norm = float(context.run_config.get("max-grad-norm",    1.0))
     dp_delta      = float(context.run_config.get("dp-delta",        1e-5))
     seed          = int(context.run_config.get("partition-seed",     42))
@@ -459,9 +450,9 @@ def train(msg: Message, context: Context) -> Message:
         class_weights=get_global_class_weights() if loss_type == "weighted_ce" else None,
     )
 
-    # ── Tâche 3 (TRUE FIX): separate RAM before / after get_epsilon() ─────────
-    # We call get_traced_memory() immediately after training, BEFORE get_epsilon(),
-    # to capture pure local training RAM peak.
+    # Snapshot RAM immediately after training, BEFORE get_epsilon(), to isolate
+    # pure local-training memory from the PRV accountant's own (much larger,
+    # sigma-dependent) transient allocation below.
     _, peak_ram_train = tracemalloc.get_traced_memory()
     peak_ram_train_mb = peak_ram_train / (1024 ** 2)
 
@@ -473,11 +464,9 @@ def train(msg: Message, context: Context) -> Message:
     _, peak_ram_after_eps = tracemalloc.get_traced_memory()
     peak_ram_epsilon_mb = peak_ram_after_eps / (1024 ** 2)
 
-    # FIX: save post-training local weights for evaluate()
-    # NOTE (FedPer): always the FULL state dict (fc1+fc2+fc3), independent of
-    # what gets filtered out of state_to_return below — this dict comprehension
-    # re-iterates net_dp.state_dict() on its own, it does not share references
-    # with state_to_return's comprehension. Verified in smoke test 2a/6.
+    # Save post-training local weights for evaluate(). Always the FULL state
+    # dict (fc1+fc2+fc3), independent of what state_to_return filters out below
+    # — this is a fresh read of net_dp.state_dict(), not a shared reference.
     _local_weights[node_id] = {
         k: v.cpu().clone() for k, v in _underlying_module(net_dp).state_dict().items()
     }
@@ -487,8 +476,7 @@ def train(msg: Message, context: Context) -> Message:
         # after the simulation process exits, since fc3 is never sent to the
         # server and _local_weights lives only in memory. Overwritten every
         # round, so the file left after the last round is the final head.
-        base_dir = "/home/clement/projet/flwr/pytorch_flwr/resultsfeat"
-        out_dir = os.path.join(base_dir, "ablation_fedper_heads")
+        out_dir = os.path.join(RESULTS_DIR, "ablation_fedper_heads")
         os.makedirs(out_dir, exist_ok=True)
         torch.save(
             _local_weights[node_id],
@@ -533,10 +521,10 @@ def train(msg: Message, context: Context) -> Message:
 @app.evaluate()
 def evaluate(msg: Message, context: Context) -> Message:
     """
-    FIX applied here:
-    BEFORE: model_local received server weights → gap was always 0.0
-    AFTER: model_local uses _local_weights[node_id] (post-training weights)
-           → gap accurately measures the value added by FedProx
+    Evaluate both the global model (server weights, as broadcast) and this
+    client's local model (its own post-training weights from _local_weights)
+    on its local test set, so local_vs_global_gap reflects the actual value
+    added by local/FedProx training rather than comparing a model to itself.
     """
     start_time  = time.time()
     node_id     = context.node_config.get("partition-id", 0)
@@ -559,17 +547,15 @@ def evaluate(msg: Message, context: Context) -> Message:
     model_global.load_state_dict(g_state, strict=True)
 
     # EVAL 2 — Local model (post-training weights saved in _local_weights)
-    # FIX: use _local_weights instead of overwriting with server weights
     model_local = load_model(model_type)
     if node_id in _local_weights:
-        # Utilise les vrais poids locaux entraînés
         l_state = model_local.state_dict()
         for k in l_state:
             if k in _local_weights[node_id]:
                 l_state[k] = _local_weights[node_id][k].to(DEVICE)
         model_local.load_state_dict(l_state, strict=True)
     else:
-        # First evaluate before any training → fallback to global model
+        # First evaluate call before any local training has happened yet.
         model_local = model_global
 
     _, testloader = load_data(node_id=node_id, batch_size=batch_size, seed=seed)
@@ -586,14 +572,14 @@ def evaluate(msg: Message, context: Context) -> Message:
     loss_q, acc_q = test(net_quantized, testloader, device=torch.device("cpu"))
 
     eval_time           = time.time() - start_time
-    local_vs_global_gap = acc_local_fp32 - acc_global  # Maintenant non-nul
+    local_vs_global_gap = acc_local_fp32 - acc_global
     quantization_error  = acc_local_fp32 - acc_q
 
     metrics = {
         "accuracy":                float(acc_q),
         "acc_global":              float(acc_global),
         "acc_local_fp32":          float(acc_local_fp32),
-        "local_vs_global_gap":     float(local_vs_global_gap),  # FIX: real gap value
+        "local_vs_global_gap":     float(local_vs_global_gap),
         "quantization_error":      float(quantization_error),
         "eval_time":               float(eval_time),
         "quantized_model_size_mb": float(get_model_size(net_quantized)),

@@ -18,7 +18,9 @@ Usage:
 import warnings
 warnings.filterwarnings("ignore")
 
+import argparse
 import os
+import random
 import time
 import csv
 import tracemalloc
@@ -37,6 +39,8 @@ from task import (
     FEATURES,
     preprocess_if_needed,
     PROCESSED_DIR,
+    WINDOW_SIZE,
+    STEP_SIZE,
 )
 
 def custom_classification_report(y_true, y_pred, target_names, digits=4):
@@ -117,8 +121,8 @@ def run_centralized(seed: int = 42, test_dir: str | None = None, local_std: bool
     print(f"  Model: MLP Tiny  |  No FL, No DP  |  Local Std: {local_std}")
     print("=" * 60)
 
-    # Strict reproducibility seed setup (Fix Problème 3)
-    import random
+    # Seed every RNG the pipeline touches before any data split or model init,
+    # so results are fully reproducible given the same seed.
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -132,8 +136,6 @@ def run_centralized(seed: int = 42, test_dir: str | None = None, local_std: bool
     client_ids = preprocess_if_needed()
     print(f"\n[DATA] {len(client_ids)} nurses")
 
-    # WINDOW_SIZE and STEP_SIZE constants from task
-    from task import WINDOW_SIZE, STEP_SIZE
     gap_windows = max(2, WINDOW_SIZE // STEP_SIZE)   # = 2 windows gap (60 raw samples)
 
     X_train_list, y_train_list = [], []
@@ -318,7 +320,6 @@ def run_centralized(seed: int = 42, test_dir: str | None = None, local_std: bool
 
 
 if __name__ == "__main__":
-    import argparse
     parser = argparse.ArgumentParser(description="Run centralized baseline.")
     parser.add_argument("--seed", type=int, default=42, help="Seed for RNG")
     parser.add_argument("--test-dir", type=str, default=None, help="Directory to save test outputs")

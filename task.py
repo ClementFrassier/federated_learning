@@ -160,27 +160,6 @@ def preprocess_if_needed() -> list:
     return client_ids
 
 
-def _ensure_global_data_loaded() -> tuple[pd.DataFrame, list]:
-    """Fallback / backward compatibility for centralized baseline."""
-    global _global_df, _client_ids
-    if _global_df is None:
-        print(f"[DATA] Loading nurse dataset from '{DATA_PATH}' (one-time, ~30 s)...")
-        df = pd.read_csv(
-            DATA_PATH,
-            usecols=["EDA", "HR", "TEMP", "X", "Y", "Z", "id", "label"],
-        )
-        df["id"] = df["id"].astype(str)
-        df["label"] = pd.to_numeric(df["label"], errors="coerce")
-        df = df[df["label"].isin([0, 1, 2])].reset_index(drop=True)
-        # Binary recombination: see preprocess_if_needed() for details.
-        df["label"] = (df["label"] > 0).astype(int)
-        df[FEATURES] = df[FEATURES].apply(pd.to_numeric, errors="coerce")
-        df = df.dropna(subset=FEATURES + ["label"]).reset_index(drop=True)
-        _global_df = df
-        _client_ids = sorted(df["id"].unique().tolist())
-    return _global_df, _client_ids
-
-
 def get_client_ids() -> list:
     """Return sorted list of unique nurse IDs present in the dataset."""
     return preprocess_if_needed()

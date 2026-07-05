@@ -122,8 +122,10 @@ def main(grid: Grid, context: Context) -> None:
     personalization_mode = context.run_config.get("personalization-mode", "none")
     test_dir    = os.environ.get("FLWR_TEST_DIR", None)
 
-    # Target output file path using absolute path of the workspace to avoid Ray cache path issues
-    base_results_dir = "/home/clement/projet/flwr/pytorch_flwr/resultsfeat"
+    # Pick the output CSV path for this run's condition, most specific first
+    # (combined ablations before single-axis ones) so no run is misfiled into
+    # a more generic bucket than it belongs in.
+    base_results_dir = CSV_DIR
     if model_type == "medium":
         csv_file = os.path.join(base_results_dir, "ablation_model_size", f"seed{seed}_sigma{sigma:.1f}.csv")
     elif test_dir or seed == 999:
