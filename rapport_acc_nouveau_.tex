@@ -1201,6 +1201,15 @@ propre à $n=5$ paires dont toutes les différences ont le même signe (le $p$ m
 atteignable avec si peu de graines), pas un signe de significativité douteuse ; le
 test $t$ reste la lecture appropriée ici.
 
+\textbf{Correction pour comparaisons multiples.} Quatre tests $t$ appariés sont menés
+sur ce même jeu de résultats ; une correction de Bonferroni ($\alpha = 0{,}05/4 =
+0{,}0125$) est donc appliquée par prudence. Trois des quatre comparaisons y survivent
+(durée, réseau entier, $p=1{,}3\times10^{-3}$ ; durée, tête seule, $p=1{,}2\times10^{-2}$ ;
+granularité, 8 époques, $p=6{,}2\times10^{-3}$) ; seule la granularité à 30 époques
+($p=2{,}2\times10^{-2}$) ne survit pas au seuil corrigé. Cela n'invalide pas la
+conclusion sur la granularité, déjà solidement établie par la comparaison à 8 époques,
+mais tempère la certitude statistique de sa réplication à 30 époques précisément.
+
 \textbf{À granularité égale, personnaliser plus longtemps aide un peu ; à durée égale,
 personnaliser seulement la tête aide beaucoup plus.} La tête seule limite probablement
 le surapprentissage sur le peu de données locales disponibles par client (34
