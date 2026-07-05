@@ -68,32 +68,44 @@ de santé au sens du RGPD, mais utile pour quantifier honnêtement le coût de l
 confidentialité.
 
 {\bf Results:}
-Sur un test-set groupé (toutes infirmières confondues, seule méthode d'évaluation
-comparable entre les deux conditions), le modèle fédéré atteint une précision de
-$82{,}0 \pm 0{,}5\,\%$ en moyenne sur les 5 valeurs de $\sigma$, contre
+Sur un test-set groupé (toutes infirmières confondues), le modèle fédéré atteint une
+précision de $82{,}0 \pm 0{,}5\,\%$ en moyenne sur les 5 valeurs de $\sigma$, contre
 $81{,}95 \pm 0{,}89\,\%$ pour le centralisé -- des précisions brutes statistiquement
-indiscernables. Sur des métriques équilibrées par classe, en revanche, le centralisé
-conserve un avantage net et stable ($57{,}8 \pm 1{,}2\,\%$ de balanced-accuracy contre
-$\approx 47{,}9\,\%$ pour le FL, quel que soit $\sigma$). Une ablation FedProx sans
-DP-SGD isole l'origine de cet écart : le modèle fédéré sans confidentialité obtient une
-balanced-accuracy quasi identique ($48{,}7\,\%$) à celle obtenue avec DP-SGD, ce qui
-montre que le coût mesuré vient essentiellement de la \textbf{décentralisation} (agréger
-des mises à jour locales à travers 15 clients très hétérogènes) et non du bruit de
-confidentialité, qui s'ajoute ensuite quasiment gratuitement. Ce coût reste stable sur
-toute la plage de budget testée -- le compromis confidentialité/utilité est
-empiriquement plat, de $\varepsilon = 5{,}29 \pm 0{,}30$ ($\sigma = 0{,}6$) jusqu'à
-$\varepsilon = 0{,}54 \pm 0{,}04$ ($\sigma = 1{,}8$).
+indiscernables. Sur des métriques équilibrées par classe, le centralisé conserve un
+avantage apparent ($57{,}8 \pm 1{,}2\,\%$ de balanced-accuracy contre $\approx 47{,}9\,\%$
+pour le FL). Mais 11 des 15 infirmières ont un test-set mono-classe, où une prédiction
+constante obtient mécaniquement $100\,\%$ -- ces clients dominent le résultat groupé et
+en masquent la vraie signification. Restreinte aux 4 clients au test-set réellement
+mixte, la mesure la plus honnête cliniquement, l'écart se réduit fortement
+($45{,}7 \pm 1{,}5\,\%$ pour le centralisé contre $42{,}7 \pm 1{,}0\,\%$ pour le FL) et
+le \textbf{centralisé lui-même s'effondre} : son AUC-ROC tombe à $0{,}267$ (sous le
+niveau du hasard) et son seuil de décision optimal se replie sur la prédiction
+constante, exactement la même signature d'absence de signal généralisable que celle
+attribuée au FL seul dans une évaluation groupée naïve. Une ablation FedProx sans DP-SGD
+confirme que la fédération (pas la confidentialité) explique l'essentiel de l'écart
+résiduel, la confidentialité ajoutant un coût mesurable mais secondaire, plus visible sur
+ces clients difficiles ($45{,}2\,\%$ sans DP contre $42{,}7\,\%$ avec DP) que sur la
+métrique groupée. Deux architectures de personnalisation (FedPer, puis une combinaison
+tête multi-couches + DP restreint à l'extracteur + SCAFFOLD) réduisent cet écart de
+façon statistiquement significative sur les clients difficiles ($48{,}4\,\%$ puis
+$59{,}9\,\%$ de balanced-accuracy) sans le faire disparaître.
 
 {\bf Conclusions:}
-Le FL différentiellement privé n'égale pas le centralisé en pouvoir discriminant
-équilibré sur ce jeu de données fortement Non-IID, mais ce n'est pas la question
-pertinente : l'agrégation centralisée de signaux physiologiques d'infirmières est
-elle-même juridiquement problématique au regard du RGPD, ce qui fait du FL la seule
-approche viable, et non un concurrent à départager sur la précision. Nos résultats
-quantifient honnêtement le coût de cette approche (environ 10 points de
-balanced-accuracy, attribuable surtout à la fédération plutôt qu'à la confidentialité
-elle-même) et montrent qu'il reste stable quel que soit le niveau de confidentialité
-visé, tout en conservant un modèle déployable sur microcontrôleur (5,32~Ko).
+Le résultat central de ce travail n'est pas que le FL coûte cher face au centralisé --
+c'est que \textbf{l'hétérogénéité extrême entre infirmières limite la généralisation de
+toute architecture testée}, centralisée comprise : sur les clients au profil
+physiologique le plus atypique, même un modèle entraîné sans aucune contrainte de
+confidentialité ni de décentralisation échoue à produire un signal exploitable. Le FL
+n'ajoute qu'un désavantage marginal, mais réel et mesurable, par-dessus ce problème de
+fond. Ceci reformule la question de recherche : il ne s'agit pas de départager FL et
+centralisé sur la précision (le centralisé restant de toute façon juridiquement
+inadapté à ce type de données de santé au regard du RGPD, ce qui fait du FL la seule
+approche viable en pratique), mais de comprendre pourquoi l'hétérogénéité Non-IID casse
+la généralisation et comment la personnalisation architecturale (FedPer, SCAFFOLD) peut
+la réduire. Nos résultats quantifient honnêtement ce coût résiduel, montrent qu'il reste
+stable quel que soit le niveau de confidentialité visé, et qu'il peut être
+significativement atténué par une architecture personnalisée -- tout en conservant un
+modèle déployable sur microcontrôleur (5,32~Ko).
 \end{abstract}
 
 \received{20 May 2026}
@@ -121,6 +133,20 @@ l'University of East London.} : la \textbf{détection automatique du stress de
 connecté. Ce scénario illustre pourquoi le FL est non seulement pertinent mais, en
 pratique, la seule approche viable lorsque les données sont simultanément sensibles,
 hétérogènes et distribuées sur des appareils contraints.
+
+Ce travail part d'une question de comparaison (le FL peut-il approcher la performance
+d'un modèle centralisé sur ce type de données ?) mais aboutit à un résultat plus
+fondamental : \textbf{l'hétérogénéité physiologique extrême entre infirmières limite la
+généralisation de toute architecture testée, centralisée y comprise}. Sur les
+sous-groupes de patientes au profil le plus atypique, même un modèle entraîné sans
+aucune contrainte de confidentialité ni de décentralisation échoue à produire un signal
+exploitable (Section~\ref{subsec:why_cent_wins}). Ce constat déplace la question de
+recherche : il ne s'agit pas de départager le FL et le centralisé sur la précision, mais
+de comprendre pourquoi le Non-IID casse la généralisation dans ce contexte clinique et
+dans quelle mesure des architectures de personnalisation (FedPer, SCAFFOLD) peuvent en
+réduire l'effet -- une lecture qui fait de ce travail une étude de cas sur les limites
+du FL en présence d'hétérogénéité extrême, plutôt qu'une simple comparaison
+FL-vs-centralisé.
 
 \section{Présentation du projet et méthodologie}
 \label{sec:methodology}
@@ -213,6 +239,25 @@ quasiment stressées en continu. Cette hétérogénéité extrême, propre au pr
 collecte, motive l'évaluation sur un test-set global regroupé (Section~\ref{sec:results})
 plutôt que sur des moyennes par client, qui seraient dominées par cet artefact de
 composition des classes plutôt que par la performance réelle du modèle.
+
+\paragraph{Une conséquence méthodologique importante : la majorité des clients ont un
+test-set mono-classe.} Cette hétérogénéité n'est pas qu'une observation qualitative :
+\textbf{11 des 15 infirmières ont un test-set ne contenant qu'une seule des deux
+classes} (split chronologique déterministe, donc identique quelle que soit la graine).
+Sur ces 11 clients, une prédiction constante obtient mécaniquement $100\,\%$ de rappel,
+\emph{indépendamment de la qualité du modèle}. Seuls \textbf{4 clients} (identifiés
+ci-après comme les clients 4, 5, 8 et 12) ont un test-set réellement mixte, et sont donc
+les seuls à porter un signal informatif sur la capacité de généralisation du modèle.
+Conséquence directe pour la suite de ce document : \textbf{toute métrique regroupant les
+15 clients est mécaniquement tirée vers le haut par ces 11 clients triviaux}, et ne
+reflète qu'imparfaitement la performance clinique réelle. Chaque tableau de résultats de
+ce document rapporte donc systématiquement deux chiffres côte à côte : la métrique
+regroupée sur les 15 clients (comparable à la littérature FL standard, où cette
+composition de classe est rarement examinée client par client) et une métrique
+restreinte aux 4 clients informatifs (la mesure la plus honnête du pouvoir discriminant
+réel). Les deux racontent une histoire différente -- souvent avec un écart de plusieurs
+dizaines de points -- et c'est précisément cet écart qui constitue l'un des résultats de
+ce travail (Section~\ref{subsec:why_cent_wins}).
 
 \subsection{Architecture du modèle : MLP Tiny}
 \label{subsec:model}
@@ -427,7 +472,13 @@ de stress), construit en concaténant le test chronologique de chaque client
 méthodologie que celle déjà utilisée pour bâtir le test-set du centralisé, garantissant
 une comparaison à armes égales. La précision brute étant peu informative sur un
 jeu de test aussi déséquilibré (une prédiction constante ``stress'' obtiendrait déjà
-86,0~\%), nous rapportons également la balanced-accuracy et le F1 macro.
+86,0~\%), nous rapportons également la balanced-accuracy et le F1 macro. Mais la
+balanced-accuracy groupée sur 15 clients hérite elle-même d'une limite : 11 de ces
+clients ont un test-set mono-classe (Section~\ref{subsec:dataset}), où ils obtiennent
+mécaniquement $100\,\%$ quel que soit le modèle. Nous rapportons donc systématiquement,
+à côté de la métrique pooled, la même métrique restreinte aux 4 clients au test-set
+réellement mixte (4, 5, 8, 12) -- la mesure la plus représentative de la performance
+clinique réelle, discutée en détail Section~\ref{subsec:why_cent_wins}.
 Le Tableau~\ref{tab:main_results} présente ces résultats, moyennés sur les 5 valeurs de
 $\sigma$ pour le FL (chacune moyennée sur 5 graines) et sur 5 graines pour le
 centralisé.
@@ -442,8 +493,10 @@ centralisé.
     Métrique & FL (FedProx + DP, tous $\sigma$) & Centralisé \\
     \midrule
     Précision (test-set groupé)  & $82{,}0 \pm 0{,}5\,\%$            & $81{,}95 \pm 0{,}89\,\%$ \\
-    Balanced-accuracy            & $47{,}9 \pm 0{,}2\,\%$            & $\mathbf{57{,}84 \pm 1{,}16\,\%}$ \\
-    F1 macro                     & $45{,}4 \pm 0{,}2\,\%$            & $\mathbf{58{,}56 \pm 1{,}26\,\%}$ \\
+    Balanced-accuracy (pooled, 15 clients)  & $47{,}9 \pm 0{,}2\,\%$ & $57{,}84 \pm 1{,}16\,\%$ \\
+    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{42{,}73 \pm 0{,}97\,\%}$ & $\mathbf{45{,}73 \pm 1{,}54\,\%}$ \\
+    F1 macro (pooled, 15 clients) & $45{,}4 \pm 0{,}2\,\%$           & $58{,}56 \pm 1{,}26\,\%$ \\
+    \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{0{,}2047 \pm 0{,}0232}$ & $\mathbf{0{,}2669 \pm 0{,}0197}$ \\
     Précision INT8 (interne, pondérée par client) & $81{,}62 \pm 0{,}17\,\%$ & $81{,}43 \pm 1{,}13\,\%$ \\
     Erreur de quantification (interne)  & $\approx -0{,}05\,\%$      & $0{,}52 \pm 0{,}65\,\%$ \\
     Taille modèle FP32          & 5,32~Ko                            & 5,32~Ko \\
@@ -459,7 +512,11 @@ centralisé.
   $\sigma$ ; détail complet par valeur de $\sigma$ au Tableau~\ref{tab:ram_results}.
   On rapporte les deux valeurs ici (et non la seule valeur la plus favorable) pour que
   la comparaison au centralisé reflète le pic RAM réel, pas seulement le régime
-  d'entraînement hors calcul de confidentialité.}
+  d'entraînement hors calcul de confidentialité.\\
+  \textsuperscript{\ddag}11 des 15 clients ont un test-set mono-classe et faussent la
+  métrique pooled (Section~\ref{subsec:dataset}) ; restreinte aux 4 clients au
+  test-set réellement mixte (4, 5, 8, 12), c'est la mesure la plus honnête
+  cliniquement -- voir la discussion complète Section~\ref{subsec:why_cent_wins}.}
 \end{table}
 
 \paragraph{Décomposition fédération vs confidentialité.} La comparaison ci-dessus
@@ -484,29 +541,39 @@ graines :
     Métrique & Centralisé & FL sans DP & FL + DP \\
     \midrule
     Accuracy         & $81{,}95 \pm 0{,}89\,\%$ & $83{,}10 \pm 0{,}92\,\%$ & $82{,}00 \pm 0{,}62\,\%$ \\
-    Balanced-accuracy & $\mathbf{57{,}84 \pm 1{,}16\,\%}$ & $48{,}68 \pm 0{,}73\,\%$ & $47{,}83 \pm 0{,}35\,\%$ \\
-    F1 macro          & $\mathbf{58{,}56 \pm 1{,}26\,\%}$ & $46{,}10 \pm 0{,}75\,\%$ & $45{,}33 \pm 0{,}28\,\%$ \\
+    Balanced-accuracy (pooled, 15 clients) & $57{,}84 \pm 1{,}16\,\%$ & $48{,}68 \pm 0{,}73\,\%$ & $47{,}83 \pm 0{,}35\,\%$ \\
+    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{45{,}73 \pm 1{,}54\,\%}$ & $\mathbf{45{,}18 \pm 2{,}38\,\%}$ & $\mathbf{42{,}73 \pm 0{,}97\,\%}$ \\
+    F1 macro (pooled, 15 clients) & $58{,}56 \pm 1{,}26\,\%$ & $46{,}10 \pm 0{,}75\,\%$ & $45{,}33 \pm 0{,}28\,\%$ \\
     \bottomrule
   \end{tabular}
+
+  \vspace{2pt}
+  {\footnotesize \textsuperscript{\ddag}Voir Section~\ref{subsec:dataset} : 11/15
+  clients mono-classe faussent la métrique pooled.}
 \end{table}
 
-Le résultat est net : FL sans DP (48,68~\%) et FL + DP (47,83~\%) sont à moins d'un
-point l'un de l'autre en balanced-accuracy, un écart plus petit que leurs écarts-types
-respectifs. **Le bruit DP-SGD n'explique donc quasiment pas le coût mesuré.** L'écart
-d'environ 10 points avec le centralisé est déjà presque entièrement présent sans aucun
-DP-SGD -- c'est la fédération elle-même (l'agrégation FedAvg/FedProx à travers 15
-clients à la composition de classe extrêmement hétérogène, Section~\ref{subsec:dataset})
-qui domine le coût, pas la confidentialité différentielle ajoutée par-dessus.
+Sur la métrique pooled, FL sans DP (48,68~\%) et FL + DP (47,83~\%) restent à moins
+d'un point l'un de l'autre -- un écart plus petit que leurs écarts-types respectifs.
+Sur les 4 clients informatifs, l'écart est plus marqué (45,18~\% contre 42,73~\%,
+soit 2,45 points) : \textbf{le bruit DP-SGD a un coût réel, mais secondaire}, et ce
+coût est proportionnellement plus visible sur les clients les plus difficiles que sur
+la métrique groupée qui le dilue. Dans les deux lectures, l'essentiel de l'écart avec
+le centralisé est déjà présent sans aucun DP-SGD -- la fédération elle-même
+(l'agrégation FedAvg/FedProx à travers 15 clients à la composition de classe
+extrêmement hétérogène, Section~\ref{subsec:dataset}) domine largement le coût, la
+confidentialité différentielle n'ajoutant qu'un supplément mesurable mais modeste.
 
-La précision brute ne permet pas de départager les deux approches (82,0~\% contre
-81,95~\%, dans le bruit statistique). L'écart se révèle sur les métriques équilibrées :
-le centralisé conserve un pouvoir discriminant réel entre les deux classes
-(balanced-accuracy $57{,}84\,\%$, nettement au-dessus du hasard à $50\,\%$), tandis que
-le modèle fédéré global reste proche, voire légèrement en-dessous du hasard
-($\approx 47{,}9\,\%$), signe qu'il tend à se replier sur la classe majoritaire plutôt
-que de véritablement discriminer le stress. C'est ce chiffre -- environ 10 points de
-balanced-accuracy -- qui constitue le coût mesuré de la confidentialité et de la
-décentralisation sur ce jeu de données (voir Section~\ref{sec:discussion}).
+La précision brute ne permet pas de départager les trois conditions (82,0~\% contre
+83,1~\% contre 81,95~\%, dans le bruit statistique). Sur la métrique pooled, l'écart
+semble net : le centralisé affiche un pouvoir discriminant apparent
+(balanced-accuracy $57{,}84\,\%$, nettement au-dessus du hasard à $50\,\%$) contre un FL
+proche voire légèrement en-dessous du hasard ($\approx 47{,}9\,\%$). Mais sur les 4
+clients informatifs, \textbf{le centralisé s'effondre lui aussi} ($45{,}73\,\%$, à peine
+au-dessus du hasard) -- un résultat discuté en détail Section~\ref{subsec:why_cent_wins},
+qui change la nature de la conclusion : ce n'est plus "le centralisé résout le
+problème que le FL ne résout pas", c'est "l'hétérogénéité extrême limite les deux
+approches, le FL n'ajoutant qu'un désavantage marginal par-dessus" (voir
+Section~\ref{sec:discussion}).
 
 Pour donner une base chiffrée à ces deux lectures plutôt qu'un jugement visuel sur
 moyenne $\pm$ écart-type, un test de Welch a été conduit sur les 25 checkpoints FL
@@ -847,59 +914,65 @@ round 30, juste avant et juste après l'appel à \texttt{get\_epsilon()} d'Opacu
 
 Cette section propose une analyse théorique et méthodologique des phénomènes observés.
 
-\subsection{Pourquoi le centralisé conserve-t-il un avantage discriminant, et pourquoi
-ce coût est-il acceptable ?}
+\subsection{Ce que révèle vraiment l'écart FL/centralisé : une limite partagée, pas un
+avantage du centralisé}
 \label{subsec:why_cent_wins}
 
-Sur le test-set groupé, le centralisé conserve un avantage net et stable en
+Sur le test-set groupé (15 clients), le centralisé affiche un avantage apparent en
 balanced-accuracy (57,84~\% contre $\approx$ 47,9~\% pour le FL,
-Section~\ref{subsec:global_comparison}). Plutôt que de laisser cet écart comme deux
-mécanismes hypothétiques non départagés, la décomposition du
-Tableau~\ref{tab:dp_decomposition} tranche directement la question :
+Section~\ref{subsec:global_comparison}). \textbf{Cette lecture ne survit pas à
+l'inspection par client.} 11 des 15 clients ont un test-set mono-classe
+(Section~\ref{subsec:dataset}) où toute prédiction constante obtient mécaniquement
+$100\,\%$ : ils dominent la métrique pooled et masquent ce qui se passe réellement sur
+les 4 clients (4, 5, 8, 12) dont le test-set est effectivement mixte -- les seuls sur
+lesquels une balanced-accuracy est une mesure signifiante du pouvoir discriminant du
+modèle.
 
+\paragraph{Sur les clients informatifs, le centralisé s'effondre aussi.} Restreinte à
+ces 4 clients, la balanced-accuracy du centralisé tombe à $45{,}73 \pm 1{,}54\,\%$ --
+à peine au-dessus du hasard, et son AUC-ROC à $0{,}2669 \pm 0{,}0197$, \textbf{en
+dessous du hasard}. Le balayage de seuil de décision (de $10^{-3}$ à $0{,}99$, sur les
+probabilités déjà produites, aucun réentraînement) est sans appel : le seuil optimal du
+centralisé se replie lui aussi sur $0{,}001$ (prédire ``stress'' quasi systématiquement),
+plafonnant à \emph{exactement} $50{,}00 \pm 0{,}00\,\%$ -- la signature précise d'une
+absence totale de signal exploitable, identique à celle que ce document attribuait
+jusqu'ici au FL seul. Le FL+DP, sur ces mêmes 4 clients, fait à peine moins bien
+(balanced-accuracy $42{,}73 \pm 0{,}97\,\%$, AUC $0{,}2047 \pm 0{,}0232$, meilleur seuil
+également $0{,}001$, plafond à $46{,}98 \pm 1{,}28\,\%$ -- sans même atteindre le plancher
+théorique). \textbf{Le message central de ce document change en conséquence} : il ne
+s'agit pas de ``pourquoi le centralisé résout un problème que le FL ne résout pas'',
+mais de ``pourquoi aucune des deux architectures ne généralise sur les clients les plus
+atypiques'' -- l'écart réel entre les deux (3 à 5 points de balanced-accuracy selon la
+métrique) est un désavantage marginal du FL par-dessus un problème de fond commun aux
+deux, pas la preuve d'un FL structurellement inadapté.
+
+\paragraph{Décomposition fédération vs confidentialité, sur les deux métriques.}
+Le Tableau~\ref{tab:dp_decomposition} isole la contribution du bruit DP-SGD :
 \begin{itemize}
-  \item \textbf{Ce n'est pas (ou très peu) le bruit DP-SGD.} FL sans DP
-  (48,68~\% de balanced-accuracy) et FL + DP (47,83~\%) sont à moins d'un point l'un
-  de l'autre, un écart plus petit que leurs écarts-types respectifs. Le clipping de
-  gradient et le bruit gaussien ajoutent donc un coût marginal, pas le coût principal.
-  \item \textbf{C'est l'agrégation fédérée elle-même.} L'écart avec le centralisé
-  (environ 9 points) est déjà presque entièrement présent en FedProx pur, sans aucun
-  DP-SGD. Avec 15 clients dont la composition de classes varie énormément
-  (Section~\ref{subsec:dataset}), moyenner des mises à jour locales aussi hétérogènes
-  produit un modèle global qui se replie vers un compromis proche de la prédiction
-  majoritaire plutôt que vers une frontière de décision fine -- ce que confirme la
-  balanced-accuracy sous les 50~\% pour le modèle fédéré global, avec ou sans DP.
+  \item \textbf{Sur la métrique pooled}, FL sans DP (48,68~\%) et FL + DP (47,83~\%)
+  sont à moins d'un point l'un de l'autre -- le bruit DP-SGD y semble quasi gratuit.
+  \item \textbf{Sur les 4 clients informatifs}, l'écart est plus net (FL sans DP
+  $45{,}18 \pm 2{,}38\,\%$ contre FL+DP $42{,}73 \pm 0{,}97\,\%$, soit 2,45 points) :
+  le coût du bruit de confidentialité est réel, simplement dilué par la métrique
+  pooled qui le noie sous les clients triviaux. Il reste néanmoins secondaire face à
+  l'écart avec le centralisé, qui persiste presque à l'identique avec ou sans DP-SGD.
 \end{itemize}
+Dans les deux lectures, l'agrégation FedAvg/FedProx à travers 15 clients aussi
+hétérogènes (Section~\ref{subsec:dataset}) domine le coût mesuré ; la confidentialité
+différentielle y ajoute un supplément mesurable mais net à moins que ne le suggère la
+métrique pooled.
 
-Ce résultat déplace le message principal : le coût mesuré n'est pas tant celui de la
-\emph{confidentialité} que celui de la \emph{décentralisation elle-même} sur un jeu de
-données aussi hétérogène -- la confidentialité différentielle s'ajoute ensuite
-quasiment gratuitement.
-
-\paragraph{Calibration du seuil de décision vs absence de signal.} Pour distinguer un
-problème de calibration du seuil de classification d'une véritable absence de pouvoir
-discriminant, nous balayons le seuil de $10^{-3}$ à $0{,}99$ sur les probabilités déjà
-produites par les checkpoints existants (aucun réentraînement). Pour le centralisé, le
-seuil optimal se situe dans la plage utile ($0{,}55$--$0{,}80$ selon la graine), avec un
-gain modeste ($57{,}84\,\%~\to~58{,}31\,\%$) : un signal discriminant réel existe,
-seulement légèrement mal calibré. Pour le FL+DP, en revanche, le seuil optimal
-s'effondre à $0{,}001$ pour les 25 checkpoints sans exception -- soit prédire ``stress''
-quasi systématiquement -- pour un gain minime ($47{,}86\,\%~\to~49{,}18\,\%$), toujours
-au niveau du plancher théorique de la prédiction constante ($50\,\%$), sans jamais
-l'atteindre. L'AUC-ROC, indépendante de tout choix de seuil, confirme et précise ce
-diagnostic : $0{,}4470 \pm 0{,}0191$ pour le FL+DP contre $0{,}5379 \pm 0{,}0137$ pour le
-centralisé. Une inspection par client révèle que cette AUC sous $0{,}5$ n'est pas un
-effet diffus sur l'ensemble de la fédération : 99,9~\% des fenêtres où le modèle est
-confiant à tort proviennent d'un seul client, dont la relation locale entre signaux
-physiologiques et stress diverge apparemment du pattern appris sur le reste de la
-population -- un cas concret de non-stationnarité Non-IID entre clients plutôt qu'une
-inversion systémique de l'agrégation. Une AUC comparable sur l'ablation FL sans DP-SGD
-($0{,}4662 \pm 0{,}0256$) confirme que cet effet est attribuable à la fédération
-elle-même et non au bruit de confidentialité. Ce n'est donc pas un problème de
-calibration mais une absence structurelle de pouvoir discriminant, concentrée sur les
-clients dont la distribution s'écarte le plus du reste de la population, cohérente avec
-la décomposition ci-dessus attribuant le coût à l'agrégation plutôt qu'à la
-confidentialité.
+\paragraph{Concentration des erreurs, revisitée.} Une inspection par client de l'AUC
+pooled avait révélé que 99,9~\% des fenêtres où le modèle FL+DP est confiant à tort
+proviennent d'un seul client (le client 5) -- interprété comme un cas de
+non-stationnarité Non-IID localisée plutôt qu'une inversion systémique de l'agrégation.
+Ce constat se lit maintenant différemment à la lumière de ce qui précède : le client 5
+est l'un des 4 seuls clients à porter un signal informatif du tout -- il n'est donc pas
+surprenant que les erreurs du modèle s'y concentrent, puisque c'est justement l'un des
+rares endroits où il y a quelque chose de non trivial à réussir ou à rater. Le
+diagnostic (non-stationnarité Non-IID entre clients, pas un bug d'agrégation) reste
+valable, mais s'inscrit maintenant dans un problème plus large touchant aussi le
+centralisé, pas une pathologie propre au FL.
 
 \paragraph{Une mitigation testée : loss pondérée par classe.} Puisque le déséquilibre
 de classe par client (Section~\ref{subsec:dataset}) semble au cœur du problème, une
@@ -929,16 +1002,24 @@ agissant directement sur l'agrégation (repondérer la contribution de chaque cl
 la moyenne FedProx, ou une architecture de personnalisation plus poussée) semblent plus
 prometteuses et restent à explorer.
 
-Ce coût d'environ 10 points de balanced-accuracy n'invalide pas l'intérêt du FL dans ce
-contexte : il en \textbf{quantifie honnêtement le prix}. Le centralisé n'est pas une
-alternative réellement disponible pour ce cas d'usage -- agréger les signaux
-physiologiques bruts de 15 infirmières sur un serveur unique constituerait un
-traitement de données de santé difficilement compatible avec le principe de
-minimisation des données du RGPD (Art.~5)~\cite{gdpr2016}, tel que rappelé en
-introduction. Le chiffre mesuré ici sert donc de référence pour statuer si ce coût est
-acceptable au regard du gain de conformité et de sécurité obtenu, et pour orienter les
-travaux futurs (features plus informatives, personnalisation renforcée, réduction
-ciblée du bruit sur les couches sensibles) visant à le réduire.
+Ce travail ne quantifie donc pas tant ``le prix de la confidentialité et de la
+décentralisation'' que \textbf{la difficulté commune, pour toute architecture, à
+généraliser sur une population d'infirmières aussi hétérogène} : même le centralisé,
+qui ne subit aucune des contraintes du FL, échoue sur les clients les plus atypiques
+(balanced-accuracy à peine au-dessus du hasard, AUC en dessous). Le désavantage
+supplémentaire du FL par rapport au centralisé (3 à 5 points selon la métrique) reste
+réel, mesurable et non négligeable -- mais c'est un supplément à un problème de fond,
+pas le problème lui-même. Cette distinction compte pour l'interprétation : le centralisé
+n'étant de toute façon pas une alternative réellement disponible pour ce cas d'usage
+(agréger les signaux physiologiques bruts de 15 infirmières sur un serveur unique
+constituerait un traitement de données de santé difficilement compatible avec le
+principe de minimisation des données du RGPD, Art.~5~\cite{gdpr2016}, tel que rappelé
+en introduction), le FL reste la seule approche viable en pratique -- et ce travail
+montre qu'il n'ajoute qu'un coût marginal par-dessus une limite que le centralisé ne
+résoudrait pas non plus. Les travaux futurs les plus prometteurs (features plus
+informatives, architectures de personnalisation comme FedPer et FedRep+SCAFFOLD ci-après)
+visent donc moins à ``rattraper le centralisé'' qu'à réduire l'effet de l'hétérogénéité
+Non-IID elle-même, un problème qui dépasse le choix FL-vs-centralisé.
 
 \subsection{Une architecture testée pour la personnalisation renforcée : FedPer}
 \label{subsec:fedper}
@@ -970,43 +1051,50 @@ fait \textbf{plus représentative d'un déploiement réel} que le modèle unique
 
 \begin{table}[h!]
   \centering
-  \caption{FedPer vs FedProx+DP, test-set groupé (méthodologie d'évaluation propre à
-  chaque architecture, voir texte) -- moyenne sur 5$\sigma\times$5 graines (n=25 chacun).}
+  \caption{FedPer vs FedProx+DP (méthodologie d'évaluation propre à chaque
+  architecture, voir texte) -- moyenne sur 5$\sigma\times$5 graines (n=25 chacun).}
   \label{tab:fedper_comparison}
   \begin{tabular}{lcc}
     \toprule
     Métrique & FedProx + DP & FedPer \\
     \midrule
-    Accuracy               & $82{,}02 \pm 0{,}62\,\%$ & $\mathbf{83{,}21 \pm 1{,}65\,\%}$ \\
-    Balanced-accuracy       & $47{,}86 \pm 0{,}35\,\%$ & $\mathbf{65{,}36 \pm 2{,}14\,\%}$ \\
-    F1 macro                & $45{,}35 \pm 0{,}28\,\%$ & $\mathbf{65{,}34 \pm 2{,}43\,\%}$ \\
-    AUC-ROC                  & $0{,}4470 \pm 0{,}0191$  & $\mathbf{0{,}7352 \pm 0{,}0366}$ \\
+    Accuracy (pooled, 15 clients)      & $82{,}02 \pm 0{,}62\,\%$ & $83{,}21 \pm 1{,}65\,\%$ \\
+    Balanced-accuracy (pooled, 15 clients) & $47{,}86 \pm 0{,}35\,\%$ & $65{,}36 \pm 2{,}14\,\%$ \\
+    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{42{,}73 \pm 0{,}97\,\%}$ & $\mathbf{48{,}44 \pm 3{,}65\,\%}$ \\
+    \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{0{,}2047 \pm 0{,}0232}$ & $\mathbf{0{,}4417 \pm 0{,}1022}$ \\
     Communication (FIT, moyenne) & $5{,}320$~Ko          & $5{,}188$~Ko ($-2{,}5\,\%$) \\
     \bottomrule
   \end{tabular}
+
+  \vspace{2pt}
+  {\footnotesize \textsuperscript{\ddag}Métrique restreinte aux clients au test-set
+  réellement mixte (Section~\ref{subsec:dataset}) -- la mesure la plus honnête
+  cliniquement.}
 \end{table}
 
-La différence est statistiquement écrasante sur les 25 valeurs de chaque condition
-(Welch : $t=40{,}36$, $p=1{,}7\times10^{-24}$ sur la balanced-accuracy ; Mann-Whitney
-$U=625$ -- soit une séparation complète, chaque valeur FedPer dépasse chaque valeur
-FedProx+DP sur les 625 paires possibles). La stabilité de la balanced-accuracy FedPer à
-travers les 5 valeurs de $\sigma$ (64,8~\% à 65,9~\%, écart maximal $\approx 1{,}1$ point)
-a été vérifiée spécifiquement pour cette architecture -- pas supposée par transfert de la
-justification déjà établie pour FedProx -- avant de regrouper les 25 valeurs comme
-réplicats d'une même condition. Le détail complet (résultats par $\sigma$ et par graine,
-tests statistiques) est conservé dans \texttt{resultsfeat/fedper\_results\_summary.md},
+Sur la métrique pooled, l'écart est très marqué (Welch $t=40{,}36$,
+$p=1{,}7\times10^{-24}$ ; Mann-Whitney $U=625/625$, séparation complète) -- mais ce
+chiffre est gonflé par les 11 clients mono-classe (Section~\ref{subsec:dataset}), sur
+lesquels les deux architectures obtiennent des scores très proches et souvent
+identiques. \textbf{Sur les 4 clients informatifs, l'écart réel est plus modeste mais
+reste statistiquement solide} (Welch $t=7{,}56$, $p=3{,}6\times10^{-8}$ ;
+Mann-Whitney $U=590/625$, $p=7{,}7\times10^{-8}$) : +5,7 points de balanced-accuracy en
+faveur de FedPer, avec une variance nettement plus grande que sur la métrique pooled
+(écart-type $3{,}65\,\%$ contre $2{,}14\,\%$) -- FedPer aide sur les clients difficiles,
+mais moins spectaculairement, et moins uniformément, que ne le suggère la métrique
+pooled. Le détail complet (résultats par $\sigma$ et par graine, tests statistiques sur
+les deux métriques) est conservé dans \texttt{resultsfeat/fedper\_results\_summary.md},
 séparément de ce document.
 
-\paragraph{Interprétation -- une confirmation directe, pas un résultat isolé.} Ce résultat
-complète exactement la décomposition FL-vs-DP ci-dessus : celle-ci avait attribué le
-coût de balanced-accuracy à l'\emph{agrégation}, pas au bruit de confidentialité. FedPer
-teste directement cette hypothèse en supprimant l'agrégation de la seule couche
-responsable de la décision finale -- et l'essentiel du coût disparaît. L'ampleur de
-l'écart (séparation complète des 25 valeurs -- vérifié également en écartant l'hypothèse
-d'un mélange accidentel de checkpoints entre les deux conditions, et en confirmant que le
-pire run FedPer dépasse encore le meilleur run FedProx+DP de 10,2 points, une marge large
-et non fragile) ne doit pas surprendre, mais \textbf{ne doit pas non plus être imputée à
-un facteur unique} : FedPer et FedProx diffèrent ici simultanément sur \emph{deux axes
+\paragraph{Interprétation -- une confirmation directe, mais d'ampleur plus mesurée
+qu'il n'y paraît.} Ce résultat complète la décomposition FL-vs-DP ci-dessus : celle-ci
+avait attribué le coût de balanced-accuracy à l'\emph{agrégation}, pas au bruit de
+confidentialité. FedPer teste directement cette hypothèse en supprimant l'agrégation de
+la seule couche responsable de la décision finale -- et une partie du coût disparaît,
+sur la métrique qui compte cliniquement. L'écart mesuré sur les clients informatifs
+(vérifié également en écartant l'hypothèse d'un mélange accidentel de checkpoints entre
+les deux conditions) ne doit pas surprendre, mais \textbf{ne doit pas non plus être
+imputé à un facteur unique} : FedPer et FedProx diffèrent ici simultanément sur \emph{deux axes
 non démêlés} par ce protocole -- (1)~la \textbf{durée} de personnalisation (30 rounds
 continus pendant l'entraînement, contre 8 époques de fine-tuning post-hoc pour FedProx,
 Tableau~\ref{tab:ablation_b}) et (2)~la \textbf{granularité} (seule la tête de
@@ -1195,41 +1283,54 @@ $1/\sigma$. C'est cette grille numérique temporaire qui provoque le pic de RAM 
 \subsubsection{Bilan}
 
 Ce travail, appuyé sur une recherche sur grille systématique couvrant 25 runs fédérés
-($\sigma \in [0{,}6;\, 1{,}8]$ sur 5 graines chacun) et deux ablations ciblées, montre
-qu'il est possible de construire un système FL opérationnel qui : (1)~fournit une
-garantie formelle $(\varepsilon, \delta)$-DP~\cite{dwork2014foundations} atteignant
-$\varepsilon = 0{,}54 \pm 0{,}04$ à $\sigma = 1{,}8$ (sous $\varepsilon = 1$, un seuil
-couramment retenu dans la littérature DP pour des applications sensibles) ;
-(2)~quantifie honnêtement, sur un test-set groupé
-méthodologiquement comparable, le coût de cette confidentialité et de cette
-décentralisation par rapport à une baseline centralisée non déployable en pratique
-sur ce type de données : environ 10 points de balanced-accuracy
-(57,84~\% contre 47,9~\%), pour une précision brute statistiquement équivalente
-(82,0~\% contre 81,95~\%) ; (2bis)~décompose ce coût grâce à une ablation FedProx
-sans DP-SGD (Tableau~\ref{tab:dp_decomposition}) et montre qu'il est attribuable
-presque entièrement à la décentralisation elle-même (FL sans DP : $48{,}68\,\%$ de
-balanced-accuracy, à moins d'un point de FL+DP), le bruit de confidentialité
-n'ajoutant qu'un coût marginal ; (3)~produit un modèle déployable sur microcontrôleur en
-5,32~Ko (FP32), quantifiable dynamiquement en INT8 avec une dégradation de précision
-quasi nulle, expliquée par le clipping de gradient DP-SGD qui resserre fortement la
-plage dynamique des poids ; et (4)~présente un compromis confidentialité/utilité
-empiriquement plat sur toute la plage testée $\varepsilon \in [0{,}54;\, 5{,}29]$ : une
-garantie de confidentialité forte n'entraîne pas de coût supplémentaire mesurable par
-rapport à une garantie faible ; et (5)~confirme directement la décomposition (2bis) en
-testant une architecture qui supprime l'agrégation de la couche de classification
-(FedPer, Section~\ref{subsec:fedper}) : la balanced-accuracy remonte à
-$65{,}36 \pm 2{,}14\,\%$ (contre $47{,}86\,\%$ pour FedProx+DP standard, écart
-statistiquement écrasant sur 25 valeurs), sans sacrifier l'accuracy brute (légèrement
-supérieure, $+1{,}19$ point) ni le coût de communication (légèrement inférieur,
-$-2{,}5\,\%$) -- au prix d'une contrainte de déploiement propre à cette architecture
-(pas de modèle global unique, chaque client garde sa propre tête de classification) ;
-et (6)~pousse cette logique plus loin hors contrainte TinyML (Section~\ref{subsec:fedrep_scaffold})
-en combinant tête multi-couches, DP restreint à l'extracteur et SCAFFOLD : sur les
-clients au test-set réellement mixte (la mesure la plus honnête cliniquement), la
-hiérarchie FedProx+DP ($42{,}7\,\%$) $<$ FedPer ($48{,}4\,\%$) $<$ FedRep+SCAFFOLD
-($59{,}9\,\%$, aussi nettement plus stable) est statistiquement nette -- au prix d'un
-coût de calcul $\approx 5\times$ supérieur, non négligeable même hors contrainte de
-taille de modèle.
+($\sigma \in [0{,}6;\, 1{,}8]$ sur 5 graines chacun) et plusieurs ablations ciblées,
+aboutit à un résultat plus fondamental que la comparaison FL-vs-centralisé qui en était
+le point de départ : \textbf{(0)~l'hétérogénéité extrême entre infirmières limite la
+généralisation de toute architecture testée, centralisée comprise}. 11 des 15 clients
+ont un test-set mono-classe (Section~\ref{subsec:dataset}), qui gonfle mécaniquement
+toute métrique groupée sur 15 clients ; restreinte aux 4 clients au test-set réellement
+mixte, la mesure la plus honnête cliniquement, le centralisé lui-même s'effondre
+(balanced-accuracy $45{,}73\,\%$, AUC $0{,}267$, sous le hasard,
+Section~\ref{subsec:why_cent_wins}) -- une limite de fond partagée par toutes les
+architectures, pas un problème propre au FL.
+
+Sur cette base, ce travail montre qu'il est possible de construire un système FL
+opérationnel qui : (1)~fournit une garantie formelle $(\varepsilon,
+\delta)$-DP~\cite{dwork2014foundations} atteignant $\varepsilon = 0{,}54 \pm 0{,}04$ à
+$\sigma = 1{,}8$ (sous $\varepsilon = 1$, un seuil couramment retenu dans la littérature
+DP pour des applications sensibles) ; (2)~quantifie honnêtement, sur les deux
+métriques (pooled et clients informatifs), le coût de cette confidentialité et de cette
+décentralisation par rapport à une baseline centralisée non déployable en pratique sur
+ce type de données : un écart de 10 points de balanced-accuracy sur la métrique pooled
+(57,84~\% contre 47,9~\%) qui se réduit à 3 points sur les clients informatifs
+(45,73~\% contre 42,73~\%), pour une précision brute statistiquement équivalente dans
+les deux cas (82,0~\% contre 81,95~\%) ; (2bis)~décompose ce coût grâce à une ablation
+FedProx sans DP-SGD (Tableau~\ref{tab:dp_decomposition}) et montre qu'il est attribuable
+essentiellement à la décentralisation elle-même (FL sans DP : $48{,}68\,\%$ pooled /
+$45{,}18\,\%$ clients informatifs, contre $47{,}83\,\%$ / $42{,}73\,\%$ pour FL+DP), le
+bruit de confidentialité n'ajoutant qu'un coût secondaire, plus visible sur les clients
+difficiles (2,45 points) que sur la métrique pooled (moins d'un point) ; (3)~produit un
+modèle déployable sur microcontrôleur en 5,32~Ko (FP32), quantifiable dynamiquement en
+INT8 avec une dégradation de précision quasi nulle, expliquée par le clipping de
+gradient DP-SGD qui resserre fortement la plage dynamique des poids ; (4)~présente un
+compromis confidentialité/utilité empiriquement plat sur toute la plage testée
+$\varepsilon \in [0{,}54;\, 5{,}29]$ ; (5)~teste une architecture qui supprime
+l'agrégation de la couche de classification (FedPer, Section~\ref{subsec:fedper}) : sur
+les clients informatifs, la balanced-accuracy remonte à $48{,}44 \pm 3{,}65\,\%$ (contre
+$42{,}73\,\%$ pour FedProx+DP standard, +5,7 points, statistiquement significatif mais
+d'ampleur modeste comparé au gonflement apparent sur la métrique pooled, +17,5 points) --
+au prix d'une contrainte de déploiement propre à cette architecture (pas de modèle
+global unique, chaque client garde sa propre tête de classification) ; et (6)~pousse
+cette logique plus loin hors contrainte TinyML (Section~\ref{subsec:fedrep_scaffold}) en
+combinant tête multi-couches, DP restreint à l'extracteur et SCAFFOLD : sur les clients
+informatifs, la hiérarchie FedProx+DP ($42{,}7\,\%$) $<$ FedPer ($48{,}4\,\%$) $<$
+FedRep+SCAFFOLD ($59{,}9\,\%$, aussi nettement plus stable) est statistiquement nette --
+au prix d'un coût de calcul $\approx 5\times$ supérieur, non négligeable même hors
+contrainte de taille de modèle. Dans tous les cas, ces architectures de
+personnalisation réduisent l'écart sans jamais le faire disparaître : même
+FedRep+SCAFFOLD reste loin d'un pouvoir discriminant pleinement satisfaisant sur les
+clients les plus atypiques, cohérent avec le constat (0) que le problème de fond est
+l'hétérogénéité elle-même, pas seulement le choix d'architecture FL.
 
 \subsubsection{Limites et travaux futurs}
 \label{subsec:synthesis_limits}
@@ -1288,21 +1389,22 @@ Plusieurs limites méritent d'être reportées honnêtement :
   contribution respective (par exemple en fine-tunant FedProx pendant 30 rounds
   complets, ou en n'ajustant que sa dernière couche pendant 8 époques) nécessiterait un
   protocole dédié, non réalisé ici faute de temps.
-  \item \textbf{Domination des métriques groupées par les clients mono-classe.}
-  Découvert lors de l'évaluation de FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold})
-  mais s'appliquant rétroactivement à \emph{toutes} les métriques pooled sur 15 clients de
-  ce document (Tableaux~\ref{tab:main_results}, \ref{tab:dp_decomposition},
-  \ref{tab:fedper_comparison}) : 11 des 15 clients ont un test-set mono-classe, où une
-  prédiction constante obtient mécaniquement $100\,\%$ quelle que soit la qualité du
-  modèle. Ces clients dominent numériquement la balanced-accuracy groupée, diluant le
-  signal des 4 clients au test-set réellement mixte (4, 5, 8, 12) -- où la performance
-  réelle est sensiblement plus faible que ne le suggèrent les chiffres groupés sur 15
-  clients. Les écarts \emph{relatifs} entre conditions (FL vs centralisé, FedProx vs
-  FedPer vs FedRep+SCAFFOLD) restent probablement valables, chaque condition étant
-  affectée de façon comparable par cet effet -- vérifié explicitement pour la comparaison
-  FedPer/FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold}), pas pour les autres
-  tableaux. Une réévaluation systématique restreinte aux clients informatifs serait
-  nécessaire pour des chiffres absolus pleinement fiables.
+  \item \textbf{Domination des métriques groupées par les clients mono-classe --
+  corrigé dans ce document, pas seulement documenté.} Découvert lors de l'évaluation de
+  FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold}) : 11 des 15 clients ont un
+  test-set mono-classe (Section~\ref{subsec:dataset}), où une prédiction constante
+  obtient mécaniquement $100\,\%$ quelle que soit la qualité du modèle. Une
+  vérification systématique a été menée sur \emph{tous} les tableaux pooled de ce
+  document (Tableaux~\ref{tab:main_results}, \ref{tab:dp_decomposition},
+  \ref{tab:fedper_comparison}, \ref{tab:fedrep_scaffold_comparison}) : chacun rapporte
+  désormais la métrique pooled sur 15 clients \emph{et} la métrique restreinte aux 4
+  clients au test-set réellement mixte (4, 5, 8, 12), la seconde étant la mesure la
+  plus honnête cliniquement. Les écarts relatifs entre conditions restent
+  qualitativement dans le même sens sur les deux métriques, mais d'ampleur nettement
+  réduite sur la métrique informative pour la comparaison centralisé-vs-FL (10 points
+  $\to$ 3 points) et FedPer-vs-FedProx (17,5 points $\to$ 5,7 points) -- un changement
+  de magnitude, pas seulement un ajustement cosmétique, qui a motivé la reformulation du
+  message central de ce document (Section~\ref{subsec:why_cent_wins}).
 \end{itemize}
 
 \printbibliography
