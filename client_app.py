@@ -213,9 +213,27 @@ def _train_fedrep_scaffold(msg: Message, context: Context, node_id: int, start_t
             # BEFORE the actual parameter update (verified against installed
             # Opacus source, see plan).
             if opt_extractor_dp.pre_step():
+                # FIX (found during the grid run, not the 3-round smoke test):
+                # the raw gradient is bounded by DP-SGD clipping (max_grad_norm),
+                # but the SCAFFOLD correction (c_global - c_i) is not — c_i
+                # accumulates round over round and the unbounded correction
+                # quickly dominates the DP-protected (deliberately tiny) signal,
+                # a positive-feedback loop that diverges to NaN within a few
+                # rounds. Clip the correction's global L2 norm to max_grad_norm
+                # too, same bound as Opacus applies to the real gradient, before
+                # adding it — keeps both terms on a comparable scale.
+                correction = {
+                    name: (c_global[name] - c_i[name])
+                    for name, _ in _underlying_module(extractor_dp).named_parameters()
+                    if name in c_global and name in c_i
+                }
+                correction_norm = torch.sqrt(sum((v ** 2).sum() for v in correction.values()))
+                if correction_norm > max_grad_norm:
+                    clip_factor = max_grad_norm / (correction_norm + 1e-6)
+                    correction = {k: v * clip_factor for k, v in correction.items()}
                 for name, param in _underlying_module(extractor_dp).named_parameters():
-                    if name in c_global and name in c_i:
-                        param.grad += (c_global[name] - c_i[name])
+                    if name in correction:
+                        param.grad += correction[name]
                 opt_extractor_dp.original_optimizer.step()
             else:
                 any_pre_step_false = True
@@ -255,7 +273,12 @@ def _train_fedrep_scaffold(msg: Message, context: Context, node_id: int, start_t
     base_dir = "/home/clement/projet/flwr/pytorch_flwr/resultsfeat"
     out_dir = os.path.join(base_dir, "ablation_fedrep_scaffold_heads")
     os.makedirs(out_dir, exist_ok=True)
-    torch.save(full_local_state, os.path.join(out_dir, f"seed{seed}_client{node_id}.pt"))
+    # BUG FIX: sigma must be part of the filename — the main grid reuses the
+    # same 5 seeds across 5 sigma values, and without sigma in the name each
+    # new sigma silently overwrote the previous one's head files on disk
+    # (found only at the end of the first full grid run, after 4/5 sigma
+    # values' heads had already been overwritten).
+    torch.save(full_local_state, os.path.join(out_dir, f"seed{seed}_sigma{noise_mult:.1f}_client{node_id}.pt"))
 
     # SCAFFOLD c_global rescaling: aggregate_arrayrecords weighs by num-examples
     # (correct for model weights, FedAvg-standard) but SCAFFOLD's canonical

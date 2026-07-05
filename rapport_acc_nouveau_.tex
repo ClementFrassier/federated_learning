@@ -1,0 +1,1310 @@
+%% JAIR Manuscript - Clément Frassier
+%% Apprentissage fédéré : principes et mise en œuvre
+%% Détection du stress chez les infirmières hospitalières (Projet HEART)
+
+\documentclass[manuscript, screen, review]{jair}
+
+\setcopyright{cc}
+\acmDOI{10.1613/jair.1.xxxxx}
+
+\JAIRAE{Clément Frassier}
+\JAIRTrack{Applications}
+\acmVolume{4}
+\acmArticle{6}
+\acmMonth{8}
+\acmYear{2026}
+
+\RequirePackage[
+  datamodel=acmdatamodel,
+  style=numeric,
+  backend=biber,
+  giveninits=true,
+  uniquename=init
+  ]{biblatex}
+
+\renewcommand*{\bibopenbracket}{(}
+\renewcommand*{\bibclosebracket}{)}
+
+\addbibresource{sample-base.bib}
+
+\begin{document}
+
+\title[Apprentissage Fédéré - Détection de Stress]{Apprentissage fédéré : principes et mise en œuvre}
+
+\author{Clément Frassier}
+\orcid{0009-0000-0000-0000}
+\email{clement.frassier@gmail.com}
+\affiliation{%
+  \institution{UKM / UEL}
+  \city{Kuala Lumpur}
+  \country{Malaysia}
+}
+
+\begin{abstract}
+{\bf Background:}
+Les données physiologiques collectées par bracelet connecté en milieu hospitalier
+constituent des données de santé à caractère personnel soumises au
+RGPD~\cite{gdpr2016}. Les agréger sur un serveur central expose les patients et le
+personnel à des risques majeurs de ré-identification, rendant les approches
+centralisées classiques inadaptées à ce contexte.
+
+{\bf Objectives:}
+Nous visons à entraîner un modèle de détection automatique du stress sur des données
+distribuées entre 15 infirmières, sans jamais transmettre ces données à un serveur
+central, tout en fournissant une garantie formelle de confidentialité différentielle
+et en produisant un modèle déployable sur bracelet embarqué (TinyML).
+
+{\bf Methods:}
+Nous proposons un pipeline d'apprentissage fédéré combinant FedProx ($\mu = 0{,}05$)
+pour la hétérogénéité Non-IID, et DP-SGD via Opacus pour la confidentialité
+différentielle $(\varepsilon, \delta)$-DP. Le modèle MLP Tiny (1~362 paramètres,
+5,32~Ko) est entraîné sur 30 rounds de communication et quantifié dynamiquement en
+INT8 pour le déploiement. Une recherche sur grille de 25 runs fédérés
+(5 valeurs de $\sigma \in [0{,}6;\, 1{,}8]$, 5 graines indépendantes) mesure
+empiriquement le compromis confidentialité/utilité, comparée à une baseline
+centralisée non contrainte (même modèle, mêmes 5 graines, sans FL ni DP) qui sert de
+plafond de référence théorique -- non déployable en pratique sur ce type de données
+de santé au sens du RGPD, mais utile pour quantifier honnêtement le coût de la
+confidentialité.
+
+{\bf Results:}
+Sur un test-set groupé (toutes infirmières confondues, seule méthode d'évaluation
+comparable entre les deux conditions), le modèle fédéré atteint une précision de
+$82{,}0 \pm 0{,}5\,\%$ en moyenne sur les 5 valeurs de $\sigma$, contre
+$81{,}95 \pm 0{,}89\,\%$ pour le centralisé -- des précisions brutes statistiquement
+indiscernables. Sur des métriques équilibrées par classe, en revanche, le centralisé
+conserve un avantage net et stable ($57{,}8 \pm 1{,}2\,\%$ de balanced-accuracy contre
+$\approx 47{,}9\,\%$ pour le FL, quel que soit $\sigma$). Une ablation FedProx sans
+DP-SGD isole l'origine de cet écart : le modèle fédéré sans confidentialité obtient une
+balanced-accuracy quasi identique ($48{,}7\,\%$) à celle obtenue avec DP-SGD, ce qui
+montre que le coût mesuré vient essentiellement de la \textbf{décentralisation} (agréger
+des mises à jour locales à travers 15 clients très hétérogènes) et non du bruit de
+confidentialité, qui s'ajoute ensuite quasiment gratuitement. Ce coût reste stable sur
+toute la plage de budget testée -- le compromis confidentialité/utilité est
+empiriquement plat, de $\varepsilon = 5{,}29 \pm 0{,}30$ ($\sigma = 0{,}6$) jusqu'à
+$\varepsilon = 0{,}54 \pm 0{,}04$ ($\sigma = 1{,}8$).
+
+{\bf Conclusions:}
+Le FL différentiellement privé n'égale pas le centralisé en pouvoir discriminant
+équilibré sur ce jeu de données fortement Non-IID, mais ce n'est pas la question
+pertinente : l'agrégation centralisée de signaux physiologiques d'infirmières est
+elle-même juridiquement problématique au regard du RGPD, ce qui fait du FL la seule
+approche viable, et non un concurrent à départager sur la précision. Nos résultats
+quantifient honnêtement le coût de cette approche (environ 10 points de
+balanced-accuracy, attribuable surtout à la fédération plutôt qu'à la confidentialité
+elle-même) et montrent qu'il reste stable quel que soit le niveau de confidentialité
+visé, tout en conservant un modèle déployable sur microcontrôleur (5,32~Ko).
+\end{abstract}
+
+\received{20 May 2026}
+\received[accepted]{1 July 2026}
+
+\maketitle
+
+\section{Introduction}
+
+L'apprentissage fédéré (\textit{Federated Learning}, FL) est un paradigme
+d'apprentissage automatique distribué dans lequel un modèle global est entraîné de
+manière collaborative par un ensemble de participants, appelés \textit{clients}, sans
+que leurs données locales ne soient jamais transmises à un serveur
+central~\cite{mcmahan2017communication}. Seuls les paramètres du modèle (poids et
+biais) circulent sur le réseau, ce qui positionne le FL comme une réponse directe aux
+exigences de minimisation des données du Règlement Général sur la Protection des
+Données (RGPD, Art.~5)~\cite{gdpr2016} et de l'HIPAA~\cite{hipaa1996} en contexte
+médical.
+
+Pour ancrer cette présentation, nous utilisons comme fil rouge un cas d'usage concret
+développé dans le cadre du projet HEART\footnote{Health, Engineering, AI,
+Responsibility and TinyML : collaboration entre l'Universiti Kebangsaan Malaysia et
+l'University of East London.} : la \textbf{détection automatique du stress de
+15 infirmières hospitalières} à partir de signaux physiologiques collectés par bracelet
+connecté. Ce scénario illustre pourquoi le FL est non seulement pertinent mais, en
+pratique, la seule approche viable lorsque les données sont simultanément sensibles,
+hétérogènes et distribuées sur des appareils contraints.
+
+\section{Présentation du projet et méthodologie}
+\label{sec:methodology}
+
+Cette section décrit les composants de notre pipeline d'apprentissage fédéré, la nature
+du jeu de données physiologiques, les choix d'architecture réseau et la modélisation
+de la confidentialité.
+
+\subsection{Le cycle d'apprentissage fédéré}
+\label{subsec:fl_cycle}
+
+Un cycle FL se déroule sur $T$ rounds de communication. À chaque round $t$, le serveur
+diffuse les poids globaux courants $\mathbf{w}^{(t)}$ vers un sous-ensemble de clients.
+Chaque client $k$ effectue $E$ epochs d'entraînement local sur ses propres données
+$\mathcal{D}_k$, puis renvoie ses poids mis à jour $\mathbf{w}_k^{(t+1)}$. Le serveur
+agrège ces contributions pour former le nouveau modèle global :
+
+\begin{equation}
+  \mathbf{w}^{(t+1)} = \sum_{k=1}^{K} \frac{|\mathcal{D}_k|}{\sum_j |\mathcal{D}_j|}
+  \, \mathbf{w}_k^{(t+1)}
+  \label{eq:fedavg}
+\end{equation}
+
+Cette règle d'agrégation, connue sous le nom de \textit{FedAvg}~\cite{mcmahan2017communication},
+est la brique fondamentale sur laquelle s'appuient les stratégies plus avancées
+utilisées dans ce travail.
+
+\subsection{Jeu de données et prétraitement}
+\label{subsec:dataset}
+
+Nous utilisons le \textit{Dataset for Continuous Stress Monitoring of Hospital
+Nurses}~\cite{nurse_stress_dataset}, collecté auprès de 15 infirmières équipées du
+bracelet clinique Empatica~E4. Les signaux enregistrés sont l'activité électrodermale
+(EDA), la fréquence cardiaque (HR), la température cutanée (TEMP) et l'accélération
+triaxiale (X, Y, Z), chacun étant un proxy physiologique direct de la réponse du
+système nerveux sympathique au stress.
+
+Les signaux physiologiques constituent des données de santé à caractère personnel au
+sens du RGPD~\cite{gdpr2016}. Les agréger sur un serveur central créerait un risque
+majeur pour la vie privée (point de défaillance unique) et exposerait le système à
+des attaques par ré-identification. De plus, ces signaux sont intrinsèquement
+\textbf{hétérogènes} (Non-IID) : un rythme cardiaque de 95 bpm peut correspondre à
+un état de repos pour une infirmière et à un état de stress aigu pour une autre.
+
+Les séries temporelles brutes sont transformées en vecteurs de caractéristiques via
+une fenêtre glissante de 60 échantillons avec un pas de 30 (50~\% de recouvrement) :
+
+\begin{equation}
+  \mathbf{x}_i = \bigl[\,\mu,\, \sigma,\, \min,\, \max\,\bigr]
+  \;\text{calcul\'es sur chaque signal dans la fen\^etre}\; i
+  \label{eq:features}
+\end{equation}
+
+Ce qui donne $6 \times 4 = 24$ caractéristiques par fenêtre. Le label de la fenêtre
+est assigné par vote majoritaire sur les labels bruts qu'elle contient.
+
+\paragraph{Split temporel avec gap anti-fuite.} Le recouvrement de 50~\% entre fenêtres
+consécutives implique que la fenêtre $i$ et la fenêtre $i+1$ partagent 30 échantillons
+bruts sur 60. Un découpage train/test par permutation aléatoire des fenêtres placerait
+fréquemment $i$ en entraînement et sa voisine quasi-identique $i+1$ en test, permettant
+au modèle de mémoriser une partie du contenu du test plutôt que d'apprendre un signal
+généralisable. Ce travail retient à la place, pour chaque infirmière, un découpage
+\textbf{chronologique} : les premières 80~\% des fenêtres
+(dans l'ordre d'enregistrement) forment le train, les 20~\% suivantes forment le test,
+séparées par un \textbf{gap de 2 fenêtres} (60 échantillons bruts, soit la taille
+d'une fenêtre entière) qui élimine tout chevauchement possible entre la dernière
+fenêtre de train et la première fenêtre de test. Cette même logique de découpage par
+client, appliquée avant tout regroupement, est aussi ce qui garantit l'absence de
+fuite lorsque les jeux de test de plusieurs infirmières sont ensuite concaténés
+(Section~\ref{subsec:global_comparison}). La standardisation est réalisée
+\textbf{localement} sur chaque client (moyenne nulle, variance unitaire calculée
+uniquement sur les fenêtres d'entraînement du client, puis appliquée au train et au
+test), ce qui préserve la frontière de confidentialité et évite toute fuite des
+statistiques de test vers l'entraînement.
+
+\paragraph{Recombinaison binaire du label.} Le dataset source encode en réalité
+\textbf{trois} niveaux de stress : classe 0 = pas de stress (18,8~\% des lignes
+brutes), classe 1 = stress faible (7,0~\%), classe 2 = stress élevé (74,2~\%), ce
+niveau étant lui-même dérivé d'un score continu moyenné sur chaque session
+d'enregistrement~\cite{nurse_stress_dataset}. Ce travail retient l'intégralité des
+données en fusionnant les classes 1 et 2 en une seule classe positive ``stress''
+(label $= \mathbb{1}[\text{label brut} > 0]$), ce qui correspond à la question
+cliniquement pertinente pour une alerte temps réel sur bracelet (présence de stress,
+quel que soit son niveau) et permet d'exploiter les 15 infirmières du jeu de données.
+Au total, le jeu de données comprend \textbf{383 584 fenêtres} (306 886
+entraînement / 76 698 test),
+réparties de manière très hétérogène entre les 15 clients : certaines infirmières
+n'ont quasiment aucun épisode de stress sur toute leur session, d'autres sont
+quasiment stressées en continu. Cette hétérogénéité extrême, propre au protocole de
+collecte, motive l'évaluation sur un test-set global regroupé (Section~\ref{sec:results})
+plutôt que sur des moyennes par client, qui seraient dominées par cet artefact de
+composition des classes plutôt que par la performance réelle du modèle.
+
+\subsection{Architecture du modèle : MLP Tiny}
+\label{subsec:model}
+
+Le modèle retenu est un \textbf{MLP Tiny} (Multi-Layer Perceptron minimaliste) composé
+de trois couches entièrement connectées :
+
+\begin{equation}
+  \text{Lin\'eaire}(24 \to 32) \xrightarrow{\text{ReLU}}
+  \text{Lin\'eaire}(32 \to 16) \xrightarrow{\text{ReLU}}
+  \text{Lin\'eaire}(16 \to 2)
+  \label{eq:mlp}
+\end{equation}
+
+Ce modèle totalise environ \textbf{1 362 paramètres}, correspondant à une empreinte
+mémoire de \textbf{5,32~Ko} en précision virgule flottante 32 bits (FP32). Cette
+architecture est justifiée par deux facteurs méthodologiques :
+
+\begin{itemize}
+  \item \textbf{Nature tabulaire de l'entrée.} Le vecteur d'entrée est composé de
+  24 caractéristiques statistiques déjà agrégées temporellement. Il n'y a ni structure
+  spatiale ni dépendance temporelle longue distance à exploiter. Des modèles plus
+  complexes (CNN ou RNN) n'apporteraient aucun gain de performance discriminant et
+  introduiraient des paramètres inutiles.
+  \item \textbf{Empreinte mémoire compatible avec les MCU contraints.} Avec 1~362
+  paramètres, le modèle s'intègre facilement dans la SRAM très limitée (16--256~Ko)
+  des microcontrôleurs bas de gamme (Cortex-M0/M4) ciblés pour le wearable compagnon.
+\end{itemize}
+
+\subsection{Quantification dynamique INT8}
+\label{subsec:quantization}
+
+En vue du déploiement sur microcontrôleur, nous appliquons une \textbf{quantification
+dynamique post-entraînement} (PTQ) via l'API PyTorch~\cite{paszke2019pytorch} :
+
+\begin{verbatim}
+net_q = torch.quantization.quantize_dynamic(
+    model_cpu, {nn.Linear}, dtype=torch.qint8
+)
+\end{verbatim}
+
+Cette opération convertit les poids des couches \texttt{Linear} de FP32 (32 bits) vers
+INT8 (8 bits), réduisant la taille du modèle de \textbf{5,32~Ko à environ 1,4~Ko}
+(facteur de compression de $\times 3{,}8$). Les activations restent en virgule flottante
+à l'exécution (quantification \textit{dynamique}), ce qui supprime le besoin d'un jeu
+de calibration, contrairement à la quantification statique.
+
+La quantification est évaluée empiriquement à chaque round d'évaluation fédéré. Cette
+opération est strictement non-destructive : le modèle continue de s'entraîner en
+précision FP32 tout au long des rounds. À chaque évaluation, une copie du modèle local
+est temporairement quantifiée en INT8 pour mesurer l'\textbf{erreur de quantification}
+(différence de précision FP32 vs INT8), puis écartée.
+
+\subsection{Stratégie d'agrégation : FedProx}
+\label{subsec:fedprox}
+
+En distribution Non-IID, les fonctions de perte locales divergent au fil des époques
+locales, provoquant une dérive des poids locaux (\textit{client drift}). La convergence
+de FedAvg n'est alors plus garantie. Nous adressons ce défi avec FedProx plutôt que
+d'autres alternatives pour deux raisons :
+
+\begin{itemize}
+  \item Premièrement, FedBN repose sur l'exclusion des couches BatchNorm de
+  l'agrégation, or le MLP Tiny n'en contient aucune ; FedBN se réduirait donc à FedAvg
+  dans notre configuration.
+  \item Deuxièmement, FedProx ne nécessite aucun état supplémentaire à communiquer
+  entre serveur et clients (contrairement à SCAFFOLD qui transmet des variables de
+  contrôle), maintenant le coût de communication par round à exactement 5,32~Ko.
+\end{itemize}
+
+FedProx~\cite{li2020fedprox} corrige cette dérive en ajoutant un terme proximal à la
+fonction objectif locale de chaque client. Chaque client résout :
+
+\begin{equation}
+  \min_{\mathbf{w}} \left\{ F_k(\mathbf{w}) + \frac{\mu}{2}
+  \| \mathbf{w} - \mathbf{w}^{(t)}_{\text{global}} \|^2 \right\}
+  \label{eq:fedprox_form}
+\end{equation}
+
+La valeur $\mu = 0{,}05$ a été retenue comme équilibre optimal : un $\mu$ trop faible
+($\approx 0$) ramène aux instabilités de FedAvg, tandis qu'un $\mu$ trop élevé
+($\geq 0{,}5$) étouffe l'adaptation locale. Le terme proximal est calculé sur
+l'ensemble des paramètres :
+
+\begin{equation}
+  \text{terme\_proximal} = \sum_{\ell} \left\|
+  \mathbf{w}_\ell - \mathbf{w}_{\ell,\,\text{global}} \right\|^2_2
+  \label{eq:proxterm}
+\end{equation}
+
+\subsection{Confidentialité différentielle : DP-SGD via Opacus}
+\label{subsec:dp}
+
+Bien que le FL évite le partage des données brutes, les attaques par inversion de
+gradient~\cite{geiping2020inverting} peuvent reconstruire les données à partir des
+paramètres. La confidentialité différentielle (DP) apporte une garantie mathématique
+formelle~\cite{dwork2014foundations}. Un mécanisme $\mathcal{M}$ est $(\varepsilon,
+\delta)$-DP si, pour tout ensemble de résultats $S$ et toute paire de jeux de données
+adjacents $\mathcal{D}$ et $\mathcal{D}'$ :
+
+\begin{equation}
+  \Pr[\mathcal{M}(\mathcal{D}) \in S] \;\leq\; e^\varepsilon \cdot
+  \Pr[\mathcal{M}(\mathcal{D}') \in S] + \delta
+  \label{eq:dp_form}
+\end{equation}
+
+L'algorithme DP-SGD~\cite{abadi2016deep}, implémenté via Opacus~\cite{opacus},
+applique à chaque étape de gradient :
+
+\begin{enumerate}
+  \item \textbf{Clipping des gradients par exemple} à une norme $\ell_2$ maximale $C$
+  (\texttt{max\_grad\_norm}) :
+  $\tilde{g}_i = g_i \cdot \min\!\left(1,\, C / \|g_i\|_2\right)$.
+  \item \textbf{Injection de bruit gaussien} :
+  $\hat{g} = \frac{1}{B}\!\left(\sum_{i=1}^B \tilde{g}_i +
+  \mathcal{N}\!\left(0,\, \sigma^2 C^2 \mathbf{I}\right)\right)$,
+  où $\sigma$ est le multiplicateur de bruit.
+\end{enumerate}
+
+Le budget cumulé $\varepsilon$ est suivi au cours des rounds via l'accountant PRV
+(\textit{Privacy Random Variable}) d'Opacus~\cite{opacus}, successeur numérique du
+\textit{moments accountant} original~\cite{abadi2016deep} (voir
+Section~\ref{sec:discussion} pour une discussion de son coût mémoire).
+
+\subsection{Protocole expérimental et baselines}
+\label{subsec:protocol}
+
+Les simulations sont orchestrées via le framework Flower~\cite{beutel2020flower}, qui
+simule les 15 clients FL séquentiellement sur un seul nœud de calcul. Nous conduisons
+une recherche sur grille complète faisant varier à la fois le multiplicateur de bruit
+et la graine aléatoire : $\sigma \in \{0{,}6;\, 0{,}8;\, 1{,}0;\, 1{,}4;\, 1{,}8\}$,
+chacun répété sur \textbf{5 graines indépendantes} (42, 123, 7, 2024, 31415), pour un
+total de \textbf{25 runs fédérés}. Les paramètres fixes sont reportés au
+Tableau~\ref{tab:dp_params_justif}.
+
+\begin{table}[h!]
+  \centering
+  \caption{Hyperparamètres de confidentialité différentielle maintenus fixes.}
+  \label{tab:dp_params_justif}
+  \begin{tabular}{llp{6cm}}
+    \toprule
+    Paramètre & Valeur & Justification \\
+    \midrule
+    \texttt{max\_grad\_norm} ($C$) & 1,0 & Valeur recommandée pour la
+    classification ; non incluse dans la grille, le focus étant sur $\sigma$. \\
+    \texttt{dp\_delta} ($\delta$) & $10^{-5}$ & Valeur fixée avant l'élargissement du
+    jeu de données (Section~\ref{subsec:dataset}). Avec $n = 306\,886$ fenêtres
+    d'entraînement, $1/n \approx 3{,}26 \times 10^{-6}$ : $\delta = 10^{-5}$ dépasse
+    désormais légèrement ce seuil recommandé $\delta < 1/n$~\cite{dwork2014foundations}
+    (d'un facteur $\approx 3$). Ceci est documenté comme limite en
+    Section~\ref{subsec:synthesis} ; les valeurs de $\varepsilon$ rapportées restent
+    correctement calculées pour ce $\delta$, mais un $\delta = 10^{-6}$ serait
+    recommandé pour une future itération. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Plutôt que de s'appuyer sur un run unique par configuration, chaque paire (graine,
+$\sigma$) de la grille, ainsi que la baseline centralisée, a été répétée sur
+\textbf{5 graines aléatoires indépendantes}. Cette pratique est motivée par deux
+considérations : d'une part, DP-SGD injecte du bruit gaussien à chaque étape de
+gradient, ce qui introduit une variabilité non négligeable entre runs même avec des
+données et hyperparamètres identiques ; d'autre part, la moyenne et l'écart-type sur
+plusieurs runs permettent de vérifier que les conclusions ne dépendent pas d'une
+initialisation aléatoire particulière.
+
+Pour mesurer le coût ou gain du FL, nous entraînons en parallèle une
+\textbf{baseline centralisée} : le même MLP Tiny entraîné de façon classique sur
+toutes les données regroupées (sans DP, sans cloisonnement fédéré, avec
+standardisation globale), moyennée sur les 5 mêmes graines (5 runs au total).
+
+Le Tableau~\ref{tab:exp_config} récapitule la configuration des deux conditions
+expérimentales.
+
+\begin{table}[h!]
+  \centering
+  \caption{Configuration des conditions expérimentales de comparaison.}
+  \label{tab:exp_config}
+  \begin{tabular}{lll}
+    \toprule
+    Paramètre & FL (FedProx+DP) & Centralisé (baseline) \\
+    \midrule
+    Rounds / Epochs  & 30 rounds, 2 ep./round & 30 epochs \\
+    Clients          & 15 (1 par infirmière)  & aucun (données regroupées) \\
+    Standardisation  & Locale (par client)    & Globale \\
+    Confidentialité  & DP-SGD ($\sigma \in [0{,}6;\, 1{,}8]$, $C=1{,}0$) & Aucune \\
+    Agrégation       & FedProx ($\mu=0{,}05$) & SGD classique \\
+    Graines indép.   & 5                      & 5 \\
+    Runs totaux      & 25 (5 graines $\times$ 5 $\sigma$) & 5 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Résultats expérimentaux}
+\label{sec:results}
+
+Cette section présente l'ensemble des mesures physiques, mémoires et statistiques
+relevées lors de nos simulations. Aucun commentaire interprétatif n'est proposé ici.
+
+\subsection{Comparaison globale : FL vs Centralisé}
+\label{subsec:global_comparison}
+
+Le jeu de données présente une hétérogénéité extrême de la classe ``stress'' entre
+infirmières (Section~\ref{subsec:dataset}) : évaluer et moyenner une précision par
+client, comme le ferait une évaluation FL classique, biaiserait fortement le résultat
+vers les artefacts de composition de classe de chaque client plutôt que vers la
+performance réelle du modèle. Nous évaluons donc chaque modèle final (le modèle
+fédéré global non personnalisé pour le FL, le modèle unique pour le centralisé) sur
+un \textbf{test-set unique regroupant les 15 infirmières} (76~698 fenêtres, 86,0~\%
+de stress), construit en concaténant le test chronologique de chaque client
+\emph{après} découpage individuel avec le gap anti-fuite -- exactement la même
+méthodologie que celle déjà utilisée pour bâtir le test-set du centralisé, garantissant
+une comparaison à armes égales. La précision brute étant peu informative sur un
+jeu de test aussi déséquilibré (une prédiction constante ``stress'' obtiendrait déjà
+86,0~\%), nous rapportons également la balanced-accuracy et le F1 macro.
+Le Tableau~\ref{tab:main_results} présente ces résultats, moyennés sur les 5 valeurs de
+$\sigma$ pour le FL (chacune moyennée sur 5 graines) et sur 5 graines pour le
+centralisé.
+
+\begin{table}[h!]
+  \centering
+  \caption{Résultats globaux sur le test-set groupé (15 infirmières, 76~698 fenêtres) :
+  FL (moyenne sur 5 $\sigma \times$ 5 graines) vs baseline centralisée (5 graines).}
+  \label{tab:main_results}
+  \begin{tabular}{lcc}
+    \toprule
+    Métrique & FL (FedProx + DP, tous $\sigma$) & Centralisé \\
+    \midrule
+    Précision (test-set groupé)  & $82{,}0 \pm 0{,}5\,\%$            & $81{,}95 \pm 0{,}89\,\%$ \\
+    Balanced-accuracy            & $47{,}9 \pm 0{,}2\,\%$            & $\mathbf{57{,}84 \pm 1{,}16\,\%}$ \\
+    F1 macro                     & $45{,}4 \pm 0{,}2\,\%$            & $\mathbf{58{,}56 \pm 1{,}26\,\%}$ \\
+    Précision INT8 (interne, pondérée par client) & $81{,}62 \pm 0{,}17\,\%$ & $81{,}43 \pm 1{,}13\,\%$ \\
+    Erreur de quantification (interne)  & $\approx -0{,}05\,\%$      & $0{,}52 \pm 0{,}65\,\%$ \\
+    Taille modèle FP32          & 5,32~Ko                            & 5,32~Ko \\
+    Communication par round     & 5,32~Ko                            & n/a \\
+    Budget $\varepsilon$ ($\sigma=1{,}4$ recommandé) & $0{,}82 \pm 0{,}06$ & n/a \\
+    RAM pic FL, entraînement seul / pendant \texttt{get\_epsilon()} (round 30) &
+    $0{,}18 \pm 0{,}01$ / jusqu'à $33{,}65 \pm 3{,}30$~Mo\textsuperscript{†} & $10{,}88 \pm 0{,}00$~Mo \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{2pt}
+  {\footnotesize \textsuperscript{†}Le pic pendant \texttt{get\_epsilon()} varie avec
+  $\sigma$ ; détail complet par valeur de $\sigma$ au Tableau~\ref{tab:ram_results}.
+  On rapporte les deux valeurs ici (et non la seule valeur la plus favorable) pour que
+  la comparaison au centralisé reflète le pic RAM réel, pas seulement le régime
+  d'entraînement hors calcul de confidentialité.}
+\end{table}
+
+\paragraph{Décomposition fédération vs confidentialité.} La comparaison ci-dessus
+oppose "FL + DP" à "centralisé sans FL ni DP" -- deux conditions qui diffèrent
+simultanément sur deux axes (décentralisation et bruit de confidentialité), sans les
+isoler. Pour savoir laquelle des deux explique le coût mesuré, une troisième condition
+a été ajoutée : FedProx fédéré, sans DP-SGD (ni clipping, ni bruit), même learning
+rate que la condition FL+DP, volontairement non réajusté pour isoler l'effet du DP
+toutes choses égales par ailleurs (le clipping de gradient modifie la taille effective
+du pas d'optimisation ; ne pas recalibrer le LR compare bien le même optimiseur avec et
+sans DP, pas deux réglages différents). Résultat sur le même test-set groupé, 5
+graines :
+
+\begin{table}[h!]
+  \centering
+  \caption{Décomposition du coût : centralisé (ni FL ni DP), FL sans DP (FedProx seul),
+  FL + DP (moyenne sur 5 graines chacun, sauf FL+DP moyenné sur 5$\sigma \times$5
+  graines).}
+  \label{tab:dp_decomposition}
+  \begin{tabular}{lccc}
+    \toprule
+    Métrique & Centralisé & FL sans DP & FL + DP \\
+    \midrule
+    Accuracy         & $81{,}95 \pm 0{,}89\,\%$ & $83{,}10 \pm 0{,}92\,\%$ & $82{,}00 \pm 0{,}62\,\%$ \\
+    Balanced-accuracy & $\mathbf{57{,}84 \pm 1{,}16\,\%}$ & $48{,}68 \pm 0{,}73\,\%$ & $47{,}83 \pm 0{,}35\,\%$ \\
+    F1 macro          & $\mathbf{58{,}56 \pm 1{,}26\,\%}$ & $46{,}10 \pm 0{,}75\,\%$ & $45{,}33 \pm 0{,}28\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Le résultat est net : FL sans DP (48,68~\%) et FL + DP (47,83~\%) sont à moins d'un
+point l'un de l'autre en balanced-accuracy, un écart plus petit que leurs écarts-types
+respectifs. **Le bruit DP-SGD n'explique donc quasiment pas le coût mesuré.** L'écart
+d'environ 10 points avec le centralisé est déjà presque entièrement présent sans aucun
+DP-SGD -- c'est la fédération elle-même (l'agrégation FedAvg/FedProx à travers 15
+clients à la composition de classe extrêmement hétérogène, Section~\ref{subsec:dataset})
+qui domine le coût, pas la confidentialité différentielle ajoutée par-dessus.
+
+La précision brute ne permet pas de départager les deux approches (82,0~\% contre
+81,95~\%, dans le bruit statistique). L'écart se révèle sur les métriques équilibrées :
+le centralisé conserve un pouvoir discriminant réel entre les deux classes
+(balanced-accuracy $57{,}84\,\%$, nettement au-dessus du hasard à $50\,\%$), tandis que
+le modèle fédéré global reste proche, voire légèrement en-dessous du hasard
+($\approx 47{,}9\,\%$), signe qu'il tend à se replier sur la classe majoritaire plutôt
+que de véritablement discriminer le stress. C'est ce chiffre -- environ 10 points de
+balanced-accuracy -- qui constitue le coût mesuré de la confidentialité et de la
+décentralisation sur ce jeu de données (voir Section~\ref{sec:discussion}).
+
+Pour donner une base chiffrée à ces deux lectures plutôt qu'un jugement visuel sur
+moyenne $\pm$ écart-type, un test de Welch a été conduit sur les 25 checkpoints FL
+(5 $\sigma \times$ 5 graines) contre les 5 checkpoints centralisés. Les 25 checkpoints
+FL sont traités comme des réplicats d'une même condition -- ce qui est défendable
+puisque la balanced-accuracy est quasi constante quel que soit $\sigma$
+(Tableau~\ref{tab:epsilon_grid_extended}), et non comme 25 mesures indépendantes d'un
+effet variant avec $\sigma$. Sur l'accuracy brute, l'écart n'est pas significatif
+($t=0{,}11$, $p=0{,}92$ ; confirmé par un test de Mann-Whitney, $p=0{,}56$, plus robuste
+à l'hypothèse de normalité fragile sur seulement 5 valeurs côté centralisé). Sur la
+balanced-accuracy, l'écart est hautement significatif ($t=-19{,}2$, $p < 10^{-4}$ ;
+Mann-Whitney $U=0$, séparation complète des deux groupes, $p < 10^{-4}$) : ce n'est pas
+un artefact de variance d'échantillonnage.
+
+\subsection{Compromis confidentialité vs utilité}
+\label{subsec:privacy_utility}
+
+Le Tableau~\ref{tab:epsilon_grid_extended} détaille l'évolution du budget de
+confidentialité $\varepsilon$ accumulé au round 30, de la précision INT8 interne
+(pondérée par client, à titre de suivi de convergence), et de la balanced-accuracy
+sur le test-set groupé, en fonction du multiplicateur de bruit $\sigma$.
+
+\begin{table}[h!]
+  \centering
+  \caption{Grille complète confidentialité/utilité (5 valeurs de $\sigma$, moyenne
+  $\pm$ écart-type sur 5 graines, $\delta = 10^{-5}$, round 30).}
+  \label{tab:epsilon_grid_extended}
+  \begin{tabular}{cccc}
+    \toprule
+    $\sigma$ & $\varepsilon$ (round 30) & Précision INT8 (interne) & Balanced-acc. (groupée) \\
+    \midrule
+    0,6 & $5{,}29 \pm 0{,}30$ & $81{,}70 \pm 0{,}15\,\%$ & $47{,}87 \pm 0{,}47\,\%$ \\
+    0,8 & $2{,}18 \pm 0{,}12$ & $81{,}86 \pm 0{,}14\,\%$ & $47{,}65 \pm 0{,}16\,\%$ \\
+    1,0 & $1{,}32 \pm 0{,}13$ & $81{,}43 \pm 0{,}46\,\%$ & $47{,}85 \pm 0{,}24\,\%$ \\
+    1,4 & $0{,}82 \pm 0{,}06$ & $81{,}50 \pm 0{,}43\,\%$ & $47{,}67 \pm 0{,}32\,\%$ \\
+    1,8 & $0{,}54 \pm 0{,}04$ & $81{,}60 \pm 0{,}17\,\%$ & $48{,}12 \pm 0{,}38\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+L'epsilon décroît de façon monotone et régulière avec $\sigma$, exactement comme
+attendu mathématiquement, ce qui confirme le bon fonctionnement de l'accountant. La
+précision INT8 et la balanced-accuracy groupée restent, elles, quasiment constantes
+sur toute la plage -- le compromis confidentialité/utilité est empiriquement plat,
+qu'on le lise sur la métrique interne ou sur la métrique groupée : le coût mesuré en
+Section~\ref{subsec:global_comparison} ne s'aggrave pas lorsqu'on exige une
+confidentialité plus forte.
+
+\subsection{Ablation : impact de la personnalisation locale}
+\label{subsec:ablation_personalization}
+
+Le Tableau~\ref{tab:ablation_b} compare, pour chaque valeur de $\sigma$, la précision
+\emph{interne} (moyenne non-pondérée sur les 15 clients, mesurée sur leur propre
+test local) du modèle global reçu du serveur (avant adaptation) avec celle du même
+modèle après les époques d'entraînement local FedProx de ce round.
+
+\begin{table}[h!]
+  \centering
+  \caption{Écart local vs. global (moyenne $\pm$ écart-type sur 5 graines), précision
+  interne par client, round 30.}
+  \label{tab:ablation_b}
+  \begin{tabular}{ccc}
+    \toprule
+    $\sigma$ & Modèle Global (interne) & Écart local $-$ global \\
+    \midrule
+    0,6 & $78{,}08 \pm 1{,}04\,\%$ & $+0{,}61 \pm 0{,}85$ pts \\
+    0,8 & $77{,}47 \pm 0{,}36\,\%$ & $+1{,}12 \pm 0{,}47$ pts \\
+    1,0 & $77{,}75 \pm 0{,}42\,\%$ & $+0{,}47 \pm 0{,}75$ pts \\
+    1,4 & $77{,}48 \pm 0{,}43\,\%$ & $+0{,}81 \pm 0{,}85$ pts \\
+    1,8 & $78{,}13 \pm 0{,}75\,\%$ & $+0{,}28 \pm 0{,}88$ pts \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+La personnalisation locale n'apporte ici qu'un gain marginal et bruité (moins de 1,2
+point en moyenne, parfois statistiquement nul compte tenu de l'écart-type). Ce
+résultat indique que la valeur ajoutée de la personnalisation FedProx est faible sur
+ce jeu de données : l'essentiel de l'écart de performance se joue entre FL et
+centralisé (Section~\ref{subsec:global_comparison}), pas entre modèle global et
+modèle personnalisé au sein du FL.
+
+\subsection{Scénario d'un nouvel arrivant : adaptation d'un modèle pré-entraîné}
+\label{subsec:late_joiner}
+
+L'écart de personnalisation ci-dessus est mesuré sur des clients qui ont \emph{déjà}
+participé à l'entraînement FL. Un scénario de déploiement plus réaliste, et plus
+exigeant, est celui d'une infirmière qui rejoint la fédération \emph{après coup} : elle
+reçoit le modèle global déjà entraîné sur les autres, sans jamais avoir contribué elle-même.
+Pour le simuler, le client 8 (composition de classe équilibrée en train comme en test --
+36,0~\% de stress en test, non mono-classe, contrairement à la majorité des autres
+clients, Section~\ref{subsec:dataset}) est totalement exclu de l'entraînement fédéré
+(30 rounds, $\sigma=0{,}8$, 3 graines) : sa contribution est neutralisée dans
+l'agrégation FedProx (poids nul, \texttt{num-examples}$=0$), le modèle global final
+n'a donc jamais vu ses données. Ce modèle est ensuite évalué directement sur les
+données du client 8 ("jour 1", zéro adaptation), puis affiné sur ses seules données
+d'entraînement locales (8 époques, taux d'apprentissage identique au reste du
+pipeline) avant réévaluation.
+
+\begin{table}[h!]
+  \centering
+  \caption{Scénario du nouvel arrivant (client 8, moyenne $\pm$ écart-type sur 3
+  graines) : avant et après adaptation locale sur un modèle jamais entraîné sur ses
+  données.}
+  \label{tab:late_joiner}
+  \begin{tabular}{lccc}
+    \toprule
+    Condition & Accuracy & Balanced-accuracy & F1 macro \\
+    \midrule
+    Jour 1 (zéro adaptation) & $36{,}56 \pm 0{,}92\,\%$ & $50{,}41 \pm 0{,}72\,\%$ & $27{,}41 \pm 1{,}57\,\%$ \\
+    Après adaptation locale (8 époques) & $51{,}75 \pm 1{,}38\,\%$ & $\mathbf{58{,}51 \pm 1{,}00\,\%}$ & $\mathbf{51{,}43 \pm 1{,}51\,\%}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Sans adaptation, le modèle global est à peine au niveau du hasard sur ce nouveau client
+(balanced-accuracy $50{,}41\,\%$) -- il n'a jamais vu sa distribution locale, et le
+Non-IID extrême de ce jeu de données (Section~\ref{subsec:dataset}) limite sa
+généralisation directe. Après seulement 8 époques de fine-tuning local, la
+balanced-accuracy grimpe à $58{,}51\,\%$ (comparable au centralisé,
+Tableau~\ref{tab:main_results}) et le F1 macro quasiment double. C'est un résultat plus
+net que l'écart de personnalisation \og en régime \fg{} du Tableau~\ref{tab:ablation_b}
+: l'apport réel de l'adaptation locale se révèle surtout pour un participant
+véritablement nouveau, pas pour un client déjà intégré au cycle d'entraînement.
+
+\textbf{Limite importante} : ce résultat repose sur un seul client exclu (le client 8)
+et 3 graines, contre 5 graines partout ailleurs dans ce rapport -- un choix assumé pour
+tenir le budget de temps disponible, pas une omission. C'est un \textbf{cas illustratif},
+pas un résultat généralisable à l'ensemble des 15 infirmières : rien ne garantit qu'un
+autre client exclu, avec une composition de classe différente, montrerait un gain
+d'adaptation de même ampleur. Une étude systématique répétant cette procédure sur
+plusieurs clients serait nécessaire pour une conclusion générale.
+
+\subsection{Rappel par classe et cas extrême : le client le plus atypique}
+\label{subsec:late_joiner_recall}
+
+La balanced-accuracy du Tableau~\ref{tab:late_joiner} peut masquer des profils
+d'erreur très différents selon la classe : un modèle qui prédit presque toujours la
+même classe peut afficher une balanced-accuracy proche de $50\,\%$ sans que ce soit un
+signe d'absence de signal -- exactement le piège identifié
+Section~\ref{subsec:why_cent_wins}. Pour vérifier ce point sur le scénario du nouvel
+arrivant, et pousser le test jusqu'au cas le plus défavorable, nous répétons la même
+procédure (exclusion totale de l'entraînement, 30 rounds, $\sigma=0{,}8$, 3 graines,
+8 époques d'adaptation) sur le client 5 -- précisément le client identifié
+Section~\ref{subsec:why_cent_wins} comme concentrant 99,9~\% des erreurs confiantes du
+modèle FL+DP global.
+
+\begin{table}[h!]
+  \centering
+  \caption{Rappel par classe (seuil par défaut $0{,}5$), avant et après adaptation
+  locale -- plage min--max sur 3 graines.}
+  \label{tab:late_joiner_recall}
+  \begin{tabular}{lcc}
+    \toprule
+    Client / Condition & Rappel non-stress & Rappel stress \\
+    \midrule
+    Client 8, jour 1 (zéro adapt.)      & $0{,}00$--$2{,}48\,\%$   & $99{,}93$--$100{,}00\,\%$ \\
+    Client 8, après adapt. (8 ép.)      & $32{,}95$--$37{,}03\,\%$ & $81{,}17$--$86{,}28\,\%$ \\
+    \addlinespace
+    Client 5, jour 1 (zéro adapt.)      & $68{,}00$--$96{,}00\,\%$ & $0{,}00$--$1{,}02\,\%$ \\
+    Client 5, après adapt. (8 ép.)      & $100{,}00\,\%^{\text{a}}$ & $3{,}13$--$19{,}66\,\%$ \\
+    \bottomrule
+  \end{tabular}
+  \vspace{2pt}
+  {\footnotesize $^{\text{a}}$Valeur exacte et identique sur les 3 graines (25/25
+  fenêtres non-stress correctement classées à chaque fois) -- non une plage arrondie.
+  À prendre avec prudence : le test du client 5 ne compte que 25 fenêtres non-stress
+  au total (sur 1688), un dénominateur trop faible pour une estimation de rappel
+  fiable sur cette seule classe.}
+\end{table}
+
+Le rappel par classe révèle deux échecs symétriques et opposés au jour 1 : le client 8
+voit son modèle prédire presque exclusivement ``stress'' (rappel stress
+$\approx 100\,\%$, rappel non-stress $\approx 0\,\%$), tandis que le client 5 montre le
+biais inverse (rappel non-stress $68$--$96\,\%$, rappel stress $\leq 1{,}02\,\%$) --
+cohérent avec l'AUC proche ou sous $0{,}5$ déjà mesurée pour ce client. Dans les deux
+cas, la balanced-accuracy proche de $50\,\%$ du jour 1 cachait un biais systématique
+fort, pas une absence de signal.
+
+L'adaptation locale corrige partiellement ces deux biais en sens inverse, mais de façon
+incomplète pour le client 5 : à seuil inchangé ($0{,}5$), le rappel stress ne remonte
+qu'à $3{,}13$--$19{,}66\,\%$ (moyenne $12{,}15\,\%$) -- le modèle continue de manquer la
+grande majorité des épisodes de stress réels sur ce client, ce qui serait cliniquement
+inacceptable pour un système d'alerte. Le client 8, à l'inverse, atteint un rappel
+stress de $81{,}17$--$86{,}28\,\%$ après adaptation, un profil beaucoup plus utilisable.
+
+\paragraph{Diagnostic complémentaire (pas un protocole de déploiement) : calibration du
+seuil post-adaptation.} Le même balayage de seuil que Section~\ref{subsec:why_cent_wins}
+appliqué aux modèles adaptés révèle, pour les deux clients, un potentiel de rappel
+supplémentaire non exploité au seuil par défaut -- mais dans des directions opposées :
+le seuil optimal descend à $0{,}001$ pour le client 5 (rappel stress porté à
+$26{,}46$--$66{,}63\,\%$, moyenne $42{,}53\,\%$) et monte à $0{,}950$ pour le client 8
+(rappel stress ramené à $71{,}93$--$75{,}98\,\%$ au profit du rappel non-stress, porté à
+$59{,}05$--$59{,}65\,\%$). \textbf{Ce balayage sélectionne le seuil qui maximise la
+métrique sur le test-set utilisé ensuite pour la rapporter : c'est un outil de
+diagnostic légitime pour révéler un problème de calibration, pas un protocole de
+déploiement validé} -- le chiffre de rappel qui en résulte est une borne supérieure
+optimiste, pas une performance attendue en production. On note en outre que le seuil
+optimal du client 5 atteint la borne inférieure du balayage ($0{,}001$), le même
+artefact de bord déjà rencontré Section~\ref{subsec:why_cent_wins} : la valeur exacte
+reste donc provisoire et n'est pas rapportée comme un résultat final. La divergence de
+direction entre les deux clients (vers $0$ pour l'un, vers $1$ pour l'autre) est
+néanmoins cohérente avec leurs biais opposés au jour 1, et \emph{suggère} qu'un seuil
+calibré par client -- sur un split de validation dédié, distinct du test, jamais
+réalisé dans ce travail -- pourrait apporter un gain réel en déploiement. Avec
+seulement $N=2$ clients testés, ceci reste une piste à vérifier, pas une conclusion
+établie.
+
+\textbf{Limites} : ces résultats reposent sur deux clients exclus (8 et 5) et 3 graines
+chacun, contre 5 graines partout ailleurs dans ce rapport -- un choix assumé pour tenir
+le budget de temps disponible. Ce sont des \textbf{cas illustratifs}, pas un résultat
+généralisable aux 15 infirmières.
+
+\subsection{Le même scénario sous FedPer : un nouvel arrivant sans historique de tête}
+\label{subsec:fedper_late_joiner}
+
+Le scénario du nouvel arrivant est rejoué sous FedPer (Section~\ref{subsec:fedper}) sur
+les deux mêmes clients (8 et 5, exclusion totale de l'entraînement, 30 rounds,
+$\sigma=0{,}8$, 3 graines). \textbf{La définition de ``jour 1'' diffère nécessairement
+entre les deux architectures, et ce n'est pas un artefact à corriger mais une
+conséquence directe de leur conception} : sous FedProx (Section~\ref{subsec:late_joiner}),
+le nouvel arrivant hérite d'une tête \emph{mal calibrée mais informée} (celle du modèle
+global final) ; sous FedPer, il n'existe littéralement \textbf{aucune tête à hériter} --
+\texttt{fc3} n'est jamais transmis -- donc le ``jour 1'' FedPer est évalué avec une tête
+\emph{vierge, initialisée aléatoirement}, posée sur l'extracteur partagé (jamais
+entraîné sur les données de ce client). Ce ne sont pas deux mesures du même phénomène
+toutes choses égales par ailleurs : ne pas les lire comme directement comparables terme
+à terme.
+
+\begin{table}[h!]
+  \centering
+  \caption{FedPer, scénario du nouvel arrivant : jour 1 (tête vierge aléatoire) vs après
+  onboarding (entraînement de \texttt{fc3} seul, extracteur gelé, 8 époques) -- plage
+  min--max sur 3 graines.}
+  \label{tab:fedper_late_joiner}
+  \begin{tabular}{lcc}
+    \toprule
+    Client / Condition & Balanced-accuracy & Rappel (non-stress~/~stress) \\
+    \midrule
+    Client 8, jour 1 (tête vierge)   & $50{,}06$--$69{,}66\,\%$ & $0{,}12$--$93{,}76\,\%$~/~$40{,}58$--$100{,}00\,\%$ \\
+    Client 8, après onboarding       & $54{,}80$--$69{,}57\,\%$ & $62{,}37$--$80{,}86\,\%$~/~$43{,}14$--$58{,}28\,\%$ \\
+    \addlinespace
+    Client 5, jour 1 (tête vierge)   & $5{,}31$--$50{,}00\,\%$  & $4{,}00$--$100{,}00\,\%$~/~$0{,}00$--$6{,}61\,\%$ \\
+    Client 5, après onboarding       & $73{,}33$--$80{,}41\,\%$ & $96{,}00$--$100{,}00\,\%$~/~$46{,}66$--$64{,}82\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Une source de variance supplémentaire, distincte de celle déjà documentée.}
+Le jour 1 FedPer présente une dispersion considérable entre graines (client 8 :
+balanced-accuracy 50,1~\% à 69,7~\% ; client 5 : 5,3~\% à 50,0~\%), nettement plus large
+que le jour 1 FedProx (déterministe à checkpoint donné). Cette variance a une cause
+identifiée et distincte de la dérive temporelle déjà documentée pour le client 5
+(Section~\ref{subsec:why_cent_wins}) : elle provient uniquement de l'initialisation
+aléatoire de la tête vierge, une source de bruit qui n'existe pas sous FedProx où la
+tête héritée est déterministe étant donné le modèle final. Pour le client 5, deux des
+trois graines d'initialisation de tête s'effondrent vers une prédiction quasi constante
+``non-stress'' (balanced-accuracy exactement 50~\%, rappel stress 0~\%) tandis que la
+troisième produit un résultat pire que le hasard sur les deux classes simultanément
+(5,3~\%) -- à ne pas confondre avec un signal de mauvaise qualité de l'extracteur, ces
+deux échecs ont des mécanismes différents (un classifieur non entraîné, pas un
+extracteur défaillant).
+
+\paragraph{Après onboarding : un gain net et surtout beaucoup plus stable.} Entraîner
+uniquement \texttt{fc3} pendant 8 époques (extracteur gelé) resserre fortement la
+dispersion et améliore le rappel stress du client 5 au seuil par défaut ($0{,}5$, sans
+aucun recalibrage de seuil) : $46{,}66$--$64{,}82\,\%$ (moyenne $57{,}19\,\%$), contre
+$3{,}13$--$19{,}66\,\%$ (moyenne $12{,}15\,\%$) pour l'adaptation complète post-hoc de
+FedProx au même seuil par défaut (Tableau~\ref{tab:late_joiner_recall}) -- et même
+comparable au diagnostic de calibration de seuil de FedProx (non déployable en l'état,
+Section~\ref{subsec:why_cent_wins}), obtenu ici \emph{sans} qu'aucun seuil n'ait été
+retouché. Le client 8 montre un resserrement de la dispersion plutôt qu'un gain net
+(balanced-accuracy moyenne comparable, écart-type divisé par plus de 2) : l'onboarding
+FedPer stabilise surtout le résultat, l'effet est moins spectaculaire que pour le
+client 5 mais dans la même direction.
+
+\textbf{Limites} : mêmes réserves que pour le scénario FedProx (N=2 clients, 3 graines,
+cas illustratif) -- avec ici une réserve supplémentaire propre à FedPer : la variance de
+jour 1 dépendant de l'initialisation aléatoire de la tête, une graine d'initialisation
+différente pourrait produire un jour 1 sensiblement différent, indépendamment de la
+graine de partition des données.
+
+\subsection{Quantification et dynamique des poids}
+
+La plage dynamique des poids (définie par $\max(|w|) - \min(|w|)$) a été relevée sur
+le modèle final après 30 rounds d'apprentissage. Le Tableau~\ref{tab:dynamic_range}
+présente cette mesure sur l'ensemble du réseau (dynamique globale) ainsi que sur la
+première couche linéaire (\texttt{fc1.weight}).
+
+\begin{table}[h!]
+  \centering
+  \caption{Plage dynamique des poids (moyenne $\pm$ écart-type sur 5 graines) selon
+  le mode d'entraînement et le niveau de bruit DP.}
+  \label{tab:dynamic_range}
+  \begin{tabular}{lcc}
+    \toprule
+    Configuration & Dynamique Globale & Dynamique \texttt{fc1.weight} \\
+    \midrule
+    Centralisé (std.\ globale)  & $9{,}4467 \pm 1{,}0336$ & $7{,}1129 \pm 0{,}5652$ \\
+    FL + DP ($\sigma = 0{,}6$)  & $2{,}9734 \pm 0{,}2251$ & $0{,}8979 \pm 0{,}0547$ \\
+    FL + DP ($\sigma = 0{,}8$)  & $3{,}2638 \pm 0{,}4708$ & $0{,}9624 \pm 0{,}0361$ \\
+    FL + DP ($\sigma = 1{,}8$)  & $3{,}0734 \pm 0{,}3360$ & $1{,}4376 \pm 0{,}1326$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Empreinte mémoire (RAM pic)}
+
+L'empreinte mémoire vive (RAM) maximale a été mesurée dynamiquement sur un client au
+round 30, juste avant et juste après l'appel à \texttt{get\_epsilon()} d'Opacus.
+
+\begin{table}[h!]
+  \centering
+  \caption{Consommation RAM pic (Mo, moyenne $\pm$ écart-type sur 5 graines) au
+  round 30, avant et pendant le calcul de la confidentialité, en fonction de $\sigma$.}
+  \label{tab:ram_results}
+  \begin{tabular}{cccc}
+    \toprule
+    $\sigma$ & Niveau de bruit & Avant \texttt{get\_epsilon()} & Pendant \texttt{get\_epsilon()} \\
+    \midrule
+    0,6 & Faible    & $0{,}18 \pm 0{,}00$~Mo & $33{,}65 \pm 3{,}30$~Mo \\
+    0,8 & Modéré-faible & $0{,}18 \pm 0{,}00$~Mo & $20{,}30 \pm 1{,}48$~Mo \\
+    1,0 & Modéré    & $0{,}18 \pm 0{,}00$~Mo & $16{,}05 \pm 1{,}70$~Mo \\
+    1,4 & Fort      & $0{,}18 \pm 0{,}00$~Mo & $13{,}44 \pm 1{,}00$~Mo \\
+    1,8 & Très fort & $0{,}37 \pm 0{,}42$~Mo$^{*}$ & $11{,}34 \pm 0{,}43$~Mo \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{2pt}
+  {\footnotesize $^{*}$4 des 5 graines donnent $\approx 0{,}18$~Mo, cohérent avec les
+  autres lignes ; une seule graine produit une valeur isolée à $1{,}11$~Mo, tirant la
+  moyenne vers le haut. Vraisemblablement un artefact ponctuel de mesure
+  (\texttt{tracemalloc} / passage du ramasse-miettes Python) plutôt qu'un effet réel
+  de $\sigma$, sans quoi la même hausse serait observée sur les autres graines.}
+\end{table}
+
+\section{Interprétation et discussion}
+\label{sec:discussion}
+
+Cette section propose une analyse théorique et méthodologique des phénomènes observés.
+
+\subsection{Pourquoi le centralisé conserve-t-il un avantage discriminant, et pourquoi
+ce coût est-il acceptable ?}
+\label{subsec:why_cent_wins}
+
+Sur le test-set groupé, le centralisé conserve un avantage net et stable en
+balanced-accuracy (57,84~\% contre $\approx$ 47,9~\% pour le FL,
+Section~\ref{subsec:global_comparison}). Plutôt que de laisser cet écart comme deux
+mécanismes hypothétiques non départagés, la décomposition du
+Tableau~\ref{tab:dp_decomposition} tranche directement la question :
+
+\begin{itemize}
+  \item \textbf{Ce n'est pas (ou très peu) le bruit DP-SGD.} FL sans DP
+  (48,68~\% de balanced-accuracy) et FL + DP (47,83~\%) sont à moins d'un point l'un
+  de l'autre, un écart plus petit que leurs écarts-types respectifs. Le clipping de
+  gradient et le bruit gaussien ajoutent donc un coût marginal, pas le coût principal.
+  \item \textbf{C'est l'agrégation fédérée elle-même.} L'écart avec le centralisé
+  (environ 9 points) est déjà presque entièrement présent en FedProx pur, sans aucun
+  DP-SGD. Avec 15 clients dont la composition de classes varie énormément
+  (Section~\ref{subsec:dataset}), moyenner des mises à jour locales aussi hétérogènes
+  produit un modèle global qui se replie vers un compromis proche de la prédiction
+  majoritaire plutôt que vers une frontière de décision fine -- ce que confirme la
+  balanced-accuracy sous les 50~\% pour le modèle fédéré global, avec ou sans DP.
+\end{itemize}
+
+Ce résultat déplace le message principal : le coût mesuré n'est pas tant celui de la
+\emph{confidentialité} que celui de la \emph{décentralisation elle-même} sur un jeu de
+données aussi hétérogène -- la confidentialité différentielle s'ajoute ensuite
+quasiment gratuitement.
+
+\paragraph{Calibration du seuil de décision vs absence de signal.} Pour distinguer un
+problème de calibration du seuil de classification d'une véritable absence de pouvoir
+discriminant, nous balayons le seuil de $10^{-3}$ à $0{,}99$ sur les probabilités déjà
+produites par les checkpoints existants (aucun réentraînement). Pour le centralisé, le
+seuil optimal se situe dans la plage utile ($0{,}55$--$0{,}80$ selon la graine), avec un
+gain modeste ($57{,}84\,\%~\to~58{,}31\,\%$) : un signal discriminant réel existe,
+seulement légèrement mal calibré. Pour le FL+DP, en revanche, le seuil optimal
+s'effondre à $0{,}001$ pour les 25 checkpoints sans exception -- soit prédire ``stress''
+quasi systématiquement -- pour un gain minime ($47{,}86\,\%~\to~49{,}18\,\%$), toujours
+au niveau du plancher théorique de la prédiction constante ($50\,\%$), sans jamais
+l'atteindre. L'AUC-ROC, indépendante de tout choix de seuil, confirme et précise ce
+diagnostic : $0{,}4470 \pm 0{,}0191$ pour le FL+DP contre $0{,}5379 \pm 0{,}0137$ pour le
+centralisé. Une inspection par client révèle que cette AUC sous $0{,}5$ n'est pas un
+effet diffus sur l'ensemble de la fédération : 99,9~\% des fenêtres où le modèle est
+confiant à tort proviennent d'un seul client, dont la relation locale entre signaux
+physiologiques et stress diverge apparemment du pattern appris sur le reste de la
+population -- un cas concret de non-stationnarité Non-IID entre clients plutôt qu'une
+inversion systémique de l'agrégation. Une AUC comparable sur l'ablation FL sans DP-SGD
+($0{,}4662 \pm 0{,}0256$) confirme que cet effet est attribuable à la fédération
+elle-même et non au bruit de confidentialité. Ce n'est donc pas un problème de
+calibration mais une absence structurelle de pouvoir discriminant, concentrée sur les
+clients dont la distribution s'écarte le plus du reste de la population, cohérente avec
+la décomposition ci-dessus attribuant le coût à l'agrégation plutôt qu'à la
+confidentialité.
+
+\paragraph{Une mitigation testée : loss pondérée par classe.} Puisque le déséquilibre
+de classe par client (Section~\ref{subsec:dataset}) semble au cœur du problème, une
+piste naturelle est de pondérer la fonction de perte locale par l'inverse de la
+fréquence globale des classes (calculée une fois sur l'agrégat des partitions
+d'entraînement de tous les clients). Vérification ponctuelle à $\sigma=0{,}8$
+(5 graines, pas l'ensemble de la grille) :
+
+\begin{center}
+\begin{tabular}{lccc}
+  \toprule
+  Condition ($\sigma=0{,}8$) & Accuracy & Balanced-accuracy & F1 macro \\
+  \midrule
+  FL + DP standard        & $81{,}84 \pm 0{,}49\,\%$ & $47{,}77 \pm 0{,}29\,\%$ & $45{,}33 \pm 0{,}19\,\%$ \\
+  FL + DP + loss pondérée & $81{,}73 \pm 0{,}65\,\%$ & $47{,}66 \pm 0{,}40\,\%$ & $45{,}21 \pm 0{,}25\,\%$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Résultat honnête et négatif : l'écart (0,11 point de balanced-accuracy) est dans le
+bruit, la loss pondérée n'apporte aucun gain mesurable ici. C'est cohérent avec la
+décomposition ci-dessus -- repondérer la perte \emph{locale} de chaque client ne peut
+pas corriger un effet qui émerge de l'\emph{agrégation} entre 15 mises à jour aussi
+hétérogènes (dont plusieurs clients mono-classe, Section~\ref{subsec:dataset}) : le
+problème ne se situe pas au niveau de la fonction de perte individuelle. Des pistes
+agissant directement sur l'agrégation (repondérer la contribution de chaque client à
+la moyenne FedProx, ou une architecture de personnalisation plus poussée) semblent plus
+prometteuses et restent à explorer.
+
+Ce coût d'environ 10 points de balanced-accuracy n'invalide pas l'intérêt du FL dans ce
+contexte : il en \textbf{quantifie honnêtement le prix}. Le centralisé n'est pas une
+alternative réellement disponible pour ce cas d'usage -- agréger les signaux
+physiologiques bruts de 15 infirmières sur un serveur unique constituerait un
+traitement de données de santé difficilement compatible avec le principe de
+minimisation des données du RGPD (Art.~5)~\cite{gdpr2016}, tel que rappelé en
+introduction. Le chiffre mesuré ici sert donc de référence pour statuer si ce coût est
+acceptable au regard du gain de conformité et de sécurité obtenu, et pour orienter les
+travaux futurs (features plus informatives, personnalisation renforcée, réduction
+ciblée du bruit sur les couches sensibles) visant à le réduire.
+
+\subsection{Une architecture testée pour la personnalisation renforcée : FedPer}
+\label{subsec:fedper}
+
+La piste de ``personnalisation renforcée'' évoquée ci-dessus a été testée directement,
+via \textbf{FedPer}~\cite{arivazhagan2019federated} : l'extracteur de caractéristiques
+(\texttt{fc1}, \texttt{fc2}) reste agrégé globalement comme en FedProx, mais la couche
+de classification finale (\texttt{fc3}) n'est \emph{jamais} transmise au serveur ni
+agrégée -- elle reste locale à chaque client, entraînée en continu sur ses propres
+données pendant les 30 rounds. Contrairement à Ditto (deux réseaux complets par client,
+régularisés l'un vers l'autre par un terme proximal), FedPer ne modifie qu'un seul
+réseau et ne nécessite qu'un filtre sur les clés du dictionnaire de poids transmis --
+une différence d'implémentation qui s'est révélée pertinente : l'historique de ce dépôt
+contient un bug de synchronisation documenté sur les branches Ditto (`f2d0b15`,
+`a3d8107`, `6e6ee40` -- poids locaux réécrasés par erreur avec les poids globaux à
+chaque round), une classe d'erreur qui n'existe structurellement pas avec FedPer
+puisqu'il n'y a rien à resynchroniser.
+
+\paragraph{Méthodologie d'évaluation -- une différence à assumer explicitement.}
+Contrairement à FedProx (Section~\ref{subsec:global_comparison}), FedPer ne produit
+\textbf{aucun modèle global unique évaluable seul} : le checkpoint serveur final ne
+contient que l'extracteur (\texttt{fc1}, \texttt{fc2}), jamais de tête de classification.
+Chaque fenêtre de test est donc scorée par le modèle propre au client dont elle provient
+(extracteur partagé + tête locale de ce client), puis les prédictions de tous les
+clients sont regroupées pour obtenir les métriques globales. Ce choix n'est pas un
+contournement : c'est la seule évaluation cohérente avec l'architecture, et elle est en
+fait \textbf{plus représentative d'un déploiement réel} que le modèle unique de FedProx
+-- chaque wearable exécuterait de toute façon son propre modèle.
+
+\begin{table}[h!]
+  \centering
+  \caption{FedPer vs FedProx+DP, test-set groupé (méthodologie d'évaluation propre à
+  chaque architecture, voir texte) -- moyenne sur 5$\sigma\times$5 graines (n=25 chacun).}
+  \label{tab:fedper_comparison}
+  \begin{tabular}{lcc}
+    \toprule
+    Métrique & FedProx + DP & FedPer \\
+    \midrule
+    Accuracy               & $82{,}02 \pm 0{,}62\,\%$ & $\mathbf{83{,}21 \pm 1{,}65\,\%}$ \\
+    Balanced-accuracy       & $47{,}86 \pm 0{,}35\,\%$ & $\mathbf{65{,}36 \pm 2{,}14\,\%}$ \\
+    F1 macro                & $45{,}35 \pm 0{,}28\,\%$ & $\mathbf{65{,}34 \pm 2{,}43\,\%}$ \\
+    AUC-ROC                  & $0{,}4470 \pm 0{,}0191$  & $\mathbf{0{,}7352 \pm 0{,}0366}$ \\
+    Communication (FIT, moyenne) & $5{,}320$~Ko          & $5{,}188$~Ko ($-2{,}5\,\%$) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+La différence est statistiquement écrasante sur les 25 valeurs de chaque condition
+(Welch : $t=40{,}36$, $p=1{,}7\times10^{-24}$ sur la balanced-accuracy ; Mann-Whitney
+$U=625$ -- soit une séparation complète, chaque valeur FedPer dépasse chaque valeur
+FedProx+DP sur les 625 paires possibles). La stabilité de la balanced-accuracy FedPer à
+travers les 5 valeurs de $\sigma$ (64,8~\% à 65,9~\%, écart maximal $\approx 1{,}1$ point)
+a été vérifiée spécifiquement pour cette architecture -- pas supposée par transfert de la
+justification déjà établie pour FedProx -- avant de regrouper les 25 valeurs comme
+réplicats d'une même condition. Le détail complet (résultats par $\sigma$ et par graine,
+tests statistiques) est conservé dans \texttt{resultsfeat/fedper\_results\_summary.md},
+séparément de ce document.
+
+\paragraph{Interprétation -- une confirmation directe, pas un résultat isolé.} Ce résultat
+complète exactement la décomposition FL-vs-DP ci-dessus : celle-ci avait attribué le
+coût de balanced-accuracy à l'\emph{agrégation}, pas au bruit de confidentialité. FedPer
+teste directement cette hypothèse en supprimant l'agrégation de la seule couche
+responsable de la décision finale -- et l'essentiel du coût disparaît. L'ampleur de
+l'écart (séparation complète des 25 valeurs -- vérifié également en écartant l'hypothèse
+d'un mélange accidentel de checkpoints entre les deux conditions, et en confirmant que le
+pire run FedPer dépasse encore le meilleur run FedProx+DP de 10,2 points, une marge large
+et non fragile) ne doit pas surprendre, mais \textbf{ne doit pas non plus être imputée à
+un facteur unique} : FedPer et FedProx diffèrent ici simultanément sur \emph{deux axes
+non démêlés} par ce protocole -- (1)~la \textbf{durée} de personnalisation (30 rounds
+continus pendant l'entraînement, contre 8 époques de fine-tuning post-hoc pour FedProx,
+Tableau~\ref{tab:ablation_b}) et (2)~la \textbf{granularité} (seule la tête de
+classification pour FedPer, contre le réseau entier pour le fine-tuning post-hoc de
+FedProx). Ce travail ne permet pas de répondre à la question ``l'écart se refermerait-il
+si FedProx était fine-tuné pendant 30 rounds complets au lieu de 8 époques ?'' -- les deux
+facteurs n'ont jamais été isolés l'un de l'autre, faute de temps pour un protocole
+supplémentaire dédié. Fait notable, l'accuracy brute progresse elle aussi légèrement
+($+1{,}19$ point, $p=1{,}97\times10^{-3}$) : FedPer n'échange donc pas de la précision
+brute contre du rappel équilibré, les deux progressent ensemble ici.
+
+\paragraph{Limite à ne pas occulter.} L'absence de modèle global unique a un coût côté
+déploiement : il n'existe pas de firmware universel à distribuer à toutes les
+infirmières -- chaque wearable doit recevoir (et mettre à jour) sa propre tête de
+classification en plus de l'extracteur partagé, ce qui complique légèrement la logistique
+de déploiement par rapport à FedProx. Le gain de communication mesuré ($-2{,}5\,\%$) est
+réel mais mécaniquement modeste sur une architecture déjà minuscule ($1\,362$
+paramètres) : la tête ne pèse que 34 paramètres sur ce total.
+
+\subsection{Explorer la meilleure architecture possible hors contrainte TinyML}
+\label{subsec:fedrep_scaffold}
+
+\textbf{Cette sous-section relâche volontairement la contrainte TinyML} (empreinte
+microcontrôleur, taille de firmware) pour explorer la meilleure architecture atteignable
+sous contraintes de \emph{sécurité seules} (pas de données brutes centralisées, garantie
+DP formelle sur ce qui est transmis) -- elle n'est pas comparable aux sections
+précédentes en termes d'objectif de déploiement embarqué, et ne remplace pas
+l'architecture MLP Tiny déployable qui reste la contribution principale de ce travail.
+
+\paragraph{Architecture.} Trois éléments distinguent cette architecture de FedPer : (1)~une
+\textbf{tête de classification à deux couches} (16$\to$16$\to$2, 306 paramètres) au lieu
+d'une seule couche linéaire (34 paramètres), toujours jamais transmise ni agrégée ;
+(2)~le \textbf{DP-SGD restreint à l'extracteur partagé} -- le clipping et le bruit
+gaussien d'Opacus ne s'appliquent qu'aux paramètres réellement transmis au serveur, la
+tête étant entraînée sans bruit ; (3)~\textbf{SCAFFOLD}~\cite{karimireddy2020scaffold}
+remplace le terme proximal de FedProx comme mécanisme de correction de la dérive
+Non-IID sur l'extracteur partagé : chaque client maintient une variable de contrôle
+$c_i$, transmise au serveur sous une clé préfixée dédiée pour bénéficier de
+l'agrégation native, avec une mise à l'échelle côté client garantissant que la moyenne
+pondérée par taille de partition (standard pour les poids du modèle) reconstruit bien la
+moyenne simple non pondérée que SCAFFOLD exige pour $c_{\text{global}}$.
+
+\textbf{Deux facteurs changent simultanément par rapport à FedPer, non démêlés dans ce
+travail} : la capacité de la tête (1 couche contre 2) et le mécanisme de correction de
+dérive (FedProx contre SCAFFOLD). Un résultat meilleur que FedPer ne permet pas de dire
+lequel des deux domine, sauf ablation supplémentaire non réalisée ici -- même limite
+méthodologique que celle déjà posée entre FedPer et FedProx (Section~\ref{subsec:fedper}).
+
+\paragraph{Un incident numérique corrigé en cours de route, documenté par transparence.}
+Le premier passage de la grille a divergé (NaN) : la correction SCAFFOLD, appliquée
+après le clipping DP-SGD, n'était elle-même jamais bornée, alors que le gradient réel
+l'est (à $\text{max\_grad\_norm}$). $c_i$ s'accumulant round après round, la correction
+a fini par dominer le gradient protégé -- une boucle de rétroaction qui a fait exploser
+les poids en quelques rounds. Corrigé en bornant la norme de la correction à la même
+échelle que le clipping DP avant de l'ajouter au gradient, validé sur un balayage étendu
+(12 rounds, pas seulement les 3 rounds du test rapide initial) avant de rejouer la
+grille complète -- 25/25 runs, aucun NaN, aucun échec.
+
+\paragraph{Découverte méthodologique : la domination par les clients mono-classe.} En
+creusant un résultat de balanced-accuracy en apparence remarquablement stable
+(quasi identique à deux décimales près sur plusieurs graines), l'inspection par client a
+révélé que \textbf{11 des 15 clients ont un test-set mono-classe} (une seule classe
+présente, split déterministe donc identique pour toute graine, Section~\ref{subsec:dataset}) :
+une prédiction constante y obtient mécaniquement $100\,\%$, indépendamment de la qualité
+réelle du modèle. Ces 11 clients dominent la balanced-accuracy groupée sur les 15
+clients, masquant la performance réelle sur les 4 clients au test-set effectivement mixte
+(clients 4, 5, 8, 12). \textbf{Cette limite s'applique rétroactivement à toutes les
+métriques groupées sur 15 clients rapportées plus haut dans ce document}
+(Tableaux~\ref{tab:main_results}, \ref{tab:dp_decomposition}, \ref{tab:fedper_comparison}) --
+signalé explicitement en synthèse (Section~\ref{subsec:synthesis_limits}) plutôt que
+laissé implicite. Une seconde métrique, restreinte aux 4 clients informatifs, est donc
+calculée en complément pour les trois architectures.
+
+\begin{table}[h!]
+  \centering
+  \caption{Comparaison FedProx+DP / FedPer / FedRep+SCAFFOLD (moyenne sur
+  5$\sigma\times$5 graines, n=25 chacun) -- pooled sur 15 clients vs restreint aux 4
+  clients au test-set réellement mixte.}
+  \label{tab:fedrep_scaffold_comparison}
+  \begin{tabular}{lcccc}
+    \toprule
+    Balanced-accuracy & FedProx+DP & FedPer & FedRep+SCAFFOLD \\
+    \midrule
+    Pooled (15 clients)            & $47{,}86 \pm 0{,}35\,\%$ & $65{,}06 \pm 2{,}78\,\%$ & $\mathbf{77{,}57 \pm 0{,}72\,\%}$ \\
+    Clients informatifs (4/15)     & $42{,}73 \pm 0{,}97\,\%$ & $48{,}44 \pm 3{,}65\,\%$ & $\mathbf{59{,}89 \pm 0{,}22\,\%}$ \\
+    AUC-ROC (clients informatifs)  & $0{,}2047 \pm 0{,}0232$  & $0{,}4417 \pm 0{,}1022$  & $\mathbf{0{,}7269 \pm 0{,}0035}$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Sur les clients informatifs -- la mesure la plus honnête cliniquement -- la hiérarchie
+FedProx+DP $<$ FedPer $<$ FedRep+SCAFFOLD est statistiquement nette (Welch et
+Mann-Whitney sur les 3 comparaisons deux-à-deux, $p < 10^{-7}$ dans tous les cas, détail
+complet dans \texttt{resultsfeat/fedper\_results\_summary.md}). Fait notable, l'AUC de
+FedProx+DP tombe à $0{,}20$ sur ces clients (pire que le hasard), confirmant que le
+problème d'agrégation identifié Section~\ref{subsec:why_cent_wins} est précisément
+concentré sur les clients les plus hétérogènes. FedRep+SCAFFOLD est aussi
+\textbf{nettement plus stable} que les deux autres conditions sur ces clients
+(écart-type de balanced-accuracy $0{,}22\,\%$ contre $3{,}65\,\%$ pour FedPer et
+$0{,}97\,\%$ pour FedProx+DP) -- vérifié non-artefactuel (les checkpoints de graines
+différentes ont été comparés directement et diffèrent réellement, pas de recyclage de
+fichier).
+
+\paragraph{Limite : coût de calcul non négligeable.} Cette grille a nécessité $\approx$
+8h30 de calcul (deux passages complets suite à l'incident ci-dessus), contre
+$\approx$ 1h40 pour FedProx+DP/FedPer -- un facteur $\approx 5\times$ plus lent par run,
+plausiblement dû à la boucle de correction SCAFFOLD non vectorisée (itération Python sur
+les paramètres à chaque pas local, jusqu'à $\approx 1240$ pas par round pour les plus
+gros clients). Non profilé rigoureusement, mais un coût de calcul réel à ne pas ignorer,
+même en dehors de toute contrainte de taille de modèle.
+
+\subsection{Pourquoi le compromis confidentialité vs utilité est-il si plat ?}
+
+Nos résultats montrent une balanced-accuracy quasiment constante sur toute la plage de
+bruit testée (de $47{,}87\,\%$ à $\sigma=0{,}6$ à $48{,}12\,\%$ à $\sigma=1{,}8$, un
+écart plus petit que la variance inter-graines), alors que $\varepsilon$ varie d'un
+facteur $\approx 10$ sur cette même plage (Tableau~\ref{tab:epsilon_grid_extended}).
+Deux éléments expliquent cette platitude :
+
+\begin{itemize}
+  \item L'Ablation de personnalisation (Section~\ref{subsec:ablation_personalization})
+  montre que le modèle global lui-même reste stable en fonction de $\sigma$
+  ($77$--$78\,\%$ de précision interne quel que soit le niveau de bruit) : l'essentiel
+  de la dégradation liée à la confidentialité est donc déjà consommé à
+  $\sigma = 0{,}6$, et l'augmenter encore n'ajoute pas de coût supplémentaire mesurable
+  dans la plage testée.
+  \item Le clipping de gradient ($C=1{,}0$) borne la contribution de chaque exemple
+  indépendamment du niveau de bruit ajouté ensuite -- c'est cette borne, plus que
+  l'amplitude du bruit lui-même, qui semble dominer la dynamique d'apprentissage sur
+  ce modèle de petite taille et ce jeu de features.
+\end{itemize}
+
+Ce constat n'a pas pu être vérifié à l'échelle d'un modèle plus grand sur les données
+corrigées (l'ablation de taille de modèle nécessite d'être rejouée, voir
+Section~\ref{subsec:synthesis}) et ne doit donc pas être généralisé au-delà de
+l'architecture MLP Tiny testée ici.
+
+\subsection{Pourquoi la quantification INT8 s'effectue-t-elle presque sans perte de
+précision en FL ?}
+
+En mode centralisé, la quantification dynamique post-entraînement dégrade la précision
+interne de $0{,}52 \pm 0{,}65\,\%$, tandis qu'en mode FL + DP, la dégradation mesurée
+est quasi nulle et même légèrement négative en moyenne ($\approx -0{,}05\,\%$, à
+l'intérieur du bruit de mesure), c'est-à-dire que la version quantifiée INT8 est
+parfois marginalement plus précise que la version FP32 dont elle est dérivée.
+
+Ce phénomène s'explique par la mécanique interne de DP-SGD~\cite{abadi2016deep}. Pour
+borner la sensibilité des données, DP-SGD applique un \textbf{clipping de gradient}
+strict ($C=1{,}0$) avant d'injecter le bruit, ce qui restreint la vitesse d'évolution
+des paramètres et agit comme une régularisation implicite de type Tikhonov
+(\textit{weight decay}).
+
+Comme le montre le Tableau~\ref{tab:dynamic_range}, cette régularisation compresse
+fortement la plage dynamique des poids par rapport au centralisé. À $\sigma = 0{,}8$,
+la plage dynamique globale du modèle FL + DP est de $3{,}26 \pm 0{,}47$ (contre
+$9{,}45 \pm 1{,}03$ pour le centralisé, soit un facteur $\approx 3$), et tombe à
+$0{,}96 \pm 0{,}04$ sur la première couche (contre $7{,}11 \pm 0{,}57$). Les poids du
+modèle FL étant nettement plus resserrés autour de zéro, ils se répartissent de
+manière plus uniforme sur la grille de quantification INT8 à 256 niveaux, subissant
+moins d'effet de saturation ou de perte de résolution que ceux du modèle centralisé,
+dont la plage dynamique plus large est davantage tronquée par la quantification.
+
+\subsection{Pourquoi la consommation de RAM pic varie-t-elle avec le bruit ?}
+
+La fluctuation de la RAM pic observée lors de l'appel à \texttt{get\_epsilon()}
+(de $11{,}34$~Mo à $\sigma=1{,}8$ jusqu'à $33{,}65$~Mo à $\sigma=0{,}6$) est une
+conséquence directe de l'algorithme comptable d'Opacus~\cite{opacus}. En l'absence
+de cet appel, l'empreinte mémoire propre au round d'entraînement local reste stable et
+faible ($\approx 0{,}18$~Mo), indépendamment du niveau de bruit -- les objets Opacus
+(moteur, optimiseur, \textit{dataloader}) étant instanciés une seule fois par client
+au premier round puis réutilisés (Section~\ref{subsec:dp}), l'essentiel de
+l'allocation mémoire liée au chargement des données a déjà eu lieu avant le round 30
+et n'apparaît donc plus dans ce pic mesuré en fin de grille.
+
+Pour calculer le budget $\varepsilon$, Opacus utilise par défaut l'approche PRV
+(\textit{Privacy Random Variable}). Cet algorithme effectue une évaluation numérique
+de la distribution de perte de confidentialité (PLD) accumulée sur l'historique des
+gradients. Plus le multiplicateur de bruit $\sigma$ est faible, plus la distribution
+est concentrée. Pour maintenir la précision numérique lors de l'intégration,
+l'algorithme PRV génère une grille discrète beaucoup plus dense, proportionnelle à
+$1/\sigma$. C'est cette grille numérique temporaire qui provoque le pic de RAM observé.
+
+\subsection{Synthèse et perspectives}
+\label{subsec:synthesis}
+
+\subsubsection{Bilan}
+
+Ce travail, appuyé sur une recherche sur grille systématique couvrant 25 runs fédérés
+($\sigma \in [0{,}6;\, 1{,}8]$ sur 5 graines chacun) et deux ablations ciblées, montre
+qu'il est possible de construire un système FL opérationnel qui : (1)~fournit une
+garantie formelle $(\varepsilon, \delta)$-DP~\cite{dwork2014foundations} atteignant
+$\varepsilon = 0{,}54 \pm 0{,}04$ à $\sigma = 1{,}8$ (sous $\varepsilon = 1$, un seuil
+couramment retenu dans la littérature DP pour des applications sensibles) ;
+(2)~quantifie honnêtement, sur un test-set groupé
+méthodologiquement comparable, le coût de cette confidentialité et de cette
+décentralisation par rapport à une baseline centralisée non déployable en pratique
+sur ce type de données : environ 10 points de balanced-accuracy
+(57,84~\% contre 47,9~\%), pour une précision brute statistiquement équivalente
+(82,0~\% contre 81,95~\%) ; (2bis)~décompose ce coût grâce à une ablation FedProx
+sans DP-SGD (Tableau~\ref{tab:dp_decomposition}) et montre qu'il est attribuable
+presque entièrement à la décentralisation elle-même (FL sans DP : $48{,}68\,\%$ de
+balanced-accuracy, à moins d'un point de FL+DP), le bruit de confidentialité
+n'ajoutant qu'un coût marginal ; (3)~produit un modèle déployable sur microcontrôleur en
+5,32~Ko (FP32), quantifiable dynamiquement en INT8 avec une dégradation de précision
+quasi nulle, expliquée par le clipping de gradient DP-SGD qui resserre fortement la
+plage dynamique des poids ; et (4)~présente un compromis confidentialité/utilité
+empiriquement plat sur toute la plage testée $\varepsilon \in [0{,}54;\, 5{,}29]$ : une
+garantie de confidentialité forte n'entraîne pas de coût supplémentaire mesurable par
+rapport à une garantie faible ; et (5)~confirme directement la décomposition (2bis) en
+testant une architecture qui supprime l'agrégation de la couche de classification
+(FedPer, Section~\ref{subsec:fedper}) : la balanced-accuracy remonte à
+$65{,}36 \pm 2{,}14\,\%$ (contre $47{,}86\,\%$ pour FedProx+DP standard, écart
+statistiquement écrasant sur 25 valeurs), sans sacrifier l'accuracy brute (légèrement
+supérieure, $+1{,}19$ point) ni le coût de communication (légèrement inférieur,
+$-2{,}5\,\%$) -- au prix d'une contrainte de déploiement propre à cette architecture
+(pas de modèle global unique, chaque client garde sa propre tête de classification) ;
+et (6)~pousse cette logique plus loin hors contrainte TinyML (Section~\ref{subsec:fedrep_scaffold})
+en combinant tête multi-couches, DP restreint à l'extracteur et SCAFFOLD : sur les
+clients au test-set réellement mixte (la mesure la plus honnête cliniquement), la
+hiérarchie FedProx+DP ($42{,}7\,\%$) $<$ FedPer ($48{,}4\,\%$) $<$ FedRep+SCAFFOLD
+($59{,}9\,\%$, aussi nettement plus stable) est statistiquement nette -- au prix d'un
+coût de calcul $\approx 5\times$ supérieur, non négligeable même hors contrainte de
+taille de modèle.
+
+\subsubsection{Limites et travaux futurs}
+\label{subsec:synthesis_limits}
+
+Plusieurs limites méritent d'être reportées honnêtement :
+
+\begin{itemize}
+  \item \textbf{Ablation de taille de modèle à rejouer.} L'ablation comparant MLP Tiny
+  et MLP Medium n'a pas encore été rejouée sur le pipeline actuel et n'est donc pas
+  rapportée dans ce travail.
+  \item \textbf{$\delta$ légèrement supérieur au seuil recommandé.} Avec
+  l'élargissement du jeu d'entraînement à $n = 306\,886$ fenêtres après recombinaison
+  des labels, $\delta = 10^{-5}$ dépasse désormais d'un facteur $\approx 3$ le seuil
+  usuel $\delta < 1/n$ (Tableau~\ref{tab:dp_params_justif}). Les valeurs
+  d'$\varepsilon$ rapportées restent correctement calculées pour ce $\delta$, mais un
+  $\delta = 10^{-6}$ serait recommandé pour une itération future.
+  \item \textbf{Mesure de la taille du modèle quantifié non fiable.} La fonction de
+  calcul de taille de modèle (\texttt{get\_model\_size}) énumère les paramètres via
+  \texttt{model.parameters()}, qui ne couvre pas les poids INT8 empaquetés par
+  \texttt{torch.quantization.quantize\_dynamic}. La taille INT8 effective n'a donc pas
+  pu être mesurée de façon fiable dans ce travail ; seul le facteur de compression
+  théorique ($\times 3{,}8$, Section~\ref{subsec:quantization}) est rapporté.
+  \item \textbf{Mesure RAM liée à l'implémentation Opacus.} L'empreinte mémoire
+  pendant le calcul d'$\varepsilon$ dépend fortement de l'implémentation interne du
+  PRV accountant~\cite{opacus}. Une future étude pourrait implémenter un comptable
+  analytique (basé sur le \textit{moments accountant} d'origine~\cite{abadi2016deep})
+  pour éviter cette surcharge numérique en environnement très contraint.
+  \item \textbf{Simulation sur nœud unique.} Notre évaluation a été exécutée sous
+  forme de simulation via Flower~\cite{beutel2020flower} sur un seul nœud de calcul.
+  Valider les performances réelles nécessiterait un déploiement décentralisé réel sur
+  des wearables physiques communicant par canaux sécurisés.
+  \item \textbf{Coût de la décentralisation non encore réduit.} La seule mitigation
+  testée en agrégation globale (loss pondérée par classe, Section~\ref{subsec:why_cent_wins})
+  n'a pas réduit l'écart de balanced-accuracy avec le centralisé. D'autres pistes --
+  features physiologiques plus informatives, repondération de la contribution de
+  chaque client dans l'agrégation FedProx, personnalisation renforcée -- n'ont pas été
+  explorées dans ce travail et constituent la suite naturelle de cette étude. Une piste
+  plus ciblée, et la mieux étayée empiriquement parmi celles listées ici, ressort du
+  scénario du nouvel arrivant (Section~\ref{subsec:late_joiner_recall}) : le seuil de
+  décision optimal après adaptation locale diverge en sens opposé selon le client
+  ($0{,}001$ contre $0{,}950$ sur les deux cas testés), ce qui suggère qu'une
+  calibration de seuil \emph{par client}, réalisée sur un split de validation dédié et
+  distinct du test, pourrait apporter un gain de rappel clinique sans modifier le
+  modèle lui-même -- une piste peu coûteuse à valider dans une itération future.
+  \item \textbf{Résultats spécifiques à ce jeu de données et cette configuration.}
+  Le coût mesuré de la confidentialité, l'erreur de quantification quasi nulle et la
+  platitude du compromis confidentialité/utilité sont des observations empiriques
+  propres à ce jeu de données Non-IID de stress infirmier et à cette petite
+  architecture MLP. Elles ne doivent pas être généralisées sans validation sur
+  d'autres jeux de données et tailles de modèles.
+  \item \textbf{FedPer vs FedProx : deux facteurs confondus, non démêlés.} L'écart de
+  balanced-accuracy en faveur de FedPer (Section~\ref{subsec:fedper}) reflète à la fois
+  une différence de \emph{durée} de personnalisation (30 rounds continus contre 8
+  époques post-hoc) et de \emph{granularité} (tête seule contre réseau entier
+  fine-tuné) -- deux axes qui varient simultanément dans ce protocole. Isoler leur
+  contribution respective (par exemple en fine-tunant FedProx pendant 30 rounds
+  complets, ou en n'ajustant que sa dernière couche pendant 8 époques) nécessiterait un
+  protocole dédié, non réalisé ici faute de temps.
+  \item \textbf{Domination des métriques groupées par les clients mono-classe.}
+  Découvert lors de l'évaluation de FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold})
+  mais s'appliquant rétroactivement à \emph{toutes} les métriques pooled sur 15 clients de
+  ce document (Tableaux~\ref{tab:main_results}, \ref{tab:dp_decomposition},
+  \ref{tab:fedper_comparison}) : 11 des 15 clients ont un test-set mono-classe, où une
+  prédiction constante obtient mécaniquement $100\,\%$ quelle que soit la qualité du
+  modèle. Ces clients dominent numériquement la balanced-accuracy groupée, diluant le
+  signal des 4 clients au test-set réellement mixte (4, 5, 8, 12) -- où la performance
+  réelle est sensiblement plus faible que ne le suggèrent les chiffres groupés sur 15
+  clients. Les écarts \emph{relatifs} entre conditions (FL vs centralisé, FedProx vs
+  FedPer vs FedRep+SCAFFOLD) restent probablement valables, chaque condition étant
+  affectée de façon comparable par cet effet -- vérifié explicitement pour la comparaison
+  FedPer/FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold}), pas pour les autres
+  tableaux. Une réévaluation systématique restreinte aux clients informatifs serait
+  nécessaire pour des chiffres absolus pleinement fiables.
+\end{itemize}
+
+\printbibliography
+
+\end{document}
