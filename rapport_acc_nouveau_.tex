@@ -1139,17 +1139,55 @@ la seule couche responsable de la décision finale -- et une partie du coût dis
 sur la métrique qui compte cliniquement. L'écart mesuré sur les clients informatifs
 (vérifié également en écartant l'hypothèse d'un mélange accidentel de checkpoints entre
 les deux conditions) ne doit pas surprendre, mais \textbf{ne doit pas non plus être
-imputé à un facteur unique} : FedPer et FedProx diffèrent ici simultanément sur \emph{deux axes
-non démêlés} par ce protocole -- (1)~la \textbf{durée} de personnalisation (30 rounds
-continus pendant l'entraînement, contre 8 époques de fine-tuning post-hoc pour FedProx,
-Tableau~\ref{tab:ablation_b}) et (2)~la \textbf{granularité} (seule la tête de
-classification pour FedPer, contre le réseau entier pour le fine-tuning post-hoc de
-FedProx). Ce travail ne permet pas de répondre à la question ``l'écart se refermerait-il
-si FedProx était fine-tuné pendant 30 rounds complets au lieu de 8 époques ?'' -- les deux
-facteurs n'ont jamais été isolés l'un de l'autre, faute de temps pour un protocole
-supplémentaire dédié. Fait notable, l'accuracy brute progresse elle aussi légèrement
-($+1{,}19$ point, $p=1{,}97\times10^{-3}$) : FedPer n'échange donc pas de la précision
-brute contre du rappel équilibré, les deux progressent ensemble ici.
+imputé à un facteur unique} : FedPer et FedProx diffèrent ici simultanément sur \emph{deux axes}
+-- (1)~la \textbf{durée} de personnalisation (30 rounds continus pendant l'entraînement,
+contre 8 époques de fine-tuning post-hoc pour FedProx, Tableau~\ref{tab:ablation_b}) et
+(2)~la \textbf{granularité} (seule la tête de classification pour FedPer, contre le
+réseau entier pour le fine-tuning post-hoc de FedProx). \textbf{Ces deux facteurs ont
+depuis été isolés} (Section~\ref{subsec:duration_vs_granularity}) : ni l'un ni l'autre
+n'explique l'écart entre personnalisation FedPer et personnalisation post-hoc FedProx --
+c'est le simple fait qu'une personnalisation ait lieu, indépendamment de sa durée ou de
+son mécanisme précis, qui compte. Fait notable, l'accuracy brute progresse elle aussi
+légèrement ($+1{,}19$ point, $p=1{,}97\times10^{-3}$) : FedPer n'échange donc pas de la
+précision brute contre du rappel équilibré, les deux progressent ensemble ici.
+
+\subsection{Durée ou granularité ? Un facteur confondu, résolu a posteriori}
+\label{subsec:duration_vs_granularity}
+
+Pour trancher lequel des deux facteurs ci-dessus (durée, granularité) domine, FedProx+DP
+($\sigma=0{,}8$, checkpoint final, 5 graines) est fine-tuné hors ligne sur les données
+d'entraînement locales de chacun des 4 clients informatifs -- \textbf{réseau entier
+dégelé} (même granularité que l'ablation post-hoc originale, Tableau~\ref{tab:ablation_b}),
+en ne faisant varier que la durée : 8 époques (durée originale) contre 30 époques
+(pour égaler l'exposition de FedPer sur 30 rounds).
+
+\begin{center}
+\begin{tabular}{lcc}
+  \toprule
+  Condition & Balanced-accuracy (pooled) & Balanced-accuracy (moyenne $\pm$ std, 5 graines) \\
+  \midrule
+  FedProx+DP, non adapté (référence) & $42{,}73\,\%$ & $42{,}73 \pm 0{,}97\,\%$ \\
+  FedProx+DP, fine-tuné 8 époques    & $48{,}65\,\%$ & $48{,}33 \pm 0{,}72\,\%$ \\
+  FedProx+DP, fine-tuné 30 époques   & $48{,}65\,\%$ & $48{,}94 \pm 0{,}58\,\%$ \\
+  FedPer (tête seule, 30 rounds continus) & --      & $48{,}44 \pm 3{,}65\,\%$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Résultat sans ambiguïté} : passer de 8 à 30 époques de fine-tuning ne change
+strictement rien à la balanced-accuracy pooled ($48{,}65\,\%$ dans les deux cas) --
+\textbf{la durée n'est pas le facteur explicatif}. Et le fine-tuning post-hoc du réseau
+entier ($48{,}3$--$48{,}9\,\%$ selon la durée) atteint une performance statistiquement
+indiscernable de la personnalisation tête-seule continue de FedPer ($48{,}44\,\%$) --
+\textbf{la granularité n'explique pas non plus l'écart}. Ce qui distingue en réalité la
+personnalisation (FedPer \emph{ou} FedProx fine-tuné) de l'absence de personnalisation
+($42{,}73\,\%$) n'est ni la durée ni le mécanisme précis, mais le simple fait qu'une
+adaptation aux données locales du client ait lieu, sous quelque forme que ce soit. Ce
+résultat simplifie la lecture de la Section~\ref{subsec:fedper} : l'avantage de FedPer
+ne vient pas d'un ingrédient architectural spécifique face à un fine-tuning classique,
+mais de la personnalisation elle-même par rapport à l'absence de personnalisation --
+FedPer reste néanmoins préférable en pratique puisqu'il l'obtient nativement pendant
+l'entraînement fédéré, sans round de fine-tuning post-hoc supplémentaire à orchestrer.
 
 \paragraph{Limite à ne pas occulter.} L'absence de modèle global unique a un coût côté
 déploiement : il n'existe pas de firmware universel à distribuer à toutes les
@@ -1431,14 +1469,15 @@ Plusieurs limites méritent d'être reportées honnêtement :
   propres à ce jeu de données Non-IID de stress infirmier et à cette petite
   architecture MLP. Elles ne doivent pas être généralisées sans validation sur
   d'autres jeux de données et tailles de modèles.
-  \item \textbf{FedPer vs FedProx : deux facteurs confondus, non démêlés.} L'écart de
-  balanced-accuracy en faveur de FedPer (Section~\ref{subsec:fedper}) reflète à la fois
-  une différence de \emph{durée} de personnalisation (30 rounds continus contre 8
-  époques post-hoc) et de \emph{granularité} (tête seule contre réseau entier
-  fine-tuné) -- deux axes qui varient simultanément dans ce protocole. Isoler leur
-  contribution respective (par exemple en fine-tunant FedProx pendant 30 rounds
-  complets, ou en n'ajustant que sa dernière couche pendant 8 époques) nécessiterait un
-  protocole dédié, non réalisé ici faute de temps.
+  \item \textbf{FedPer vs FedProx, durée et granularité : résolu, plus une limite
+  ouverte.} L'écart initialement observé entre FedPer et FedProx fine-tuné (Section
+  \ref{subsec:fedper}) aurait pu refléter soit la \emph{durée} de personnalisation (30
+  rounds continus contre 8 époques post-hoc), soit la \emph{granularité} (tête seule
+  contre réseau entier). Isolé a posteriori
+  (Section~\ref{subsec:duration_vs_granularity}) : ni l'un ni l'autre -- prolonger le
+  fine-tuning à 30 époques ne change rien, et le fine-tuning du réseau entier égale la
+  personnalisation tête-seule de FedPer. Seul le fait qu'une personnalisation ait lieu
+  compte, pas sa durée ni son mécanisme.
   \item \textbf{Domination des métriques groupées par les clients mono-classe --
   corrigé dans ce document, pas seulement documenté.} Découvert lors de l'évaluation de
   FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold}) : 11 des 15 clients ont un
