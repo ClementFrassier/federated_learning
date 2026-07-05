@@ -1464,8 +1464,16 @@ les clients informatifs, la balanced-accuracy remonte à $48{,}44 \pm 3{,}65\,\%
 $42{,}73\,\%$ pour FedProx+DP standard, +5,7 points, statistiquement significatif mais
 d'ampleur modeste comparé au gonflement apparent sur la métrique pooled, +17,5 points) --
 au prix d'une contrainte de déploiement propre à cette architecture (pas de modèle
-global unique, chaque client garde sa propre tête de classification) ; et (6)~pousse
-cette logique plus loin hors contrainte TinyML (Section~\ref{subsec:fedrep_scaffold}) en
+global unique, chaque client garde sa propre tête de classification) ; (5bis)~un test
+complémentaire isolant la granularité (Section~\ref{subsec:duration_vs_granularity})
+montre qu'un simple fine-tuning post-hoc de la seule tête de classification, sur le
+checkpoint FedProx+DP standard \emph{déjà entraîné} et sans architecture dédiée,
+atteint $55{,}88 \pm 2{,}35\,\%$ -- \textbf{davantage que FedPer lui-même}, sans le
+chemin d'entraînement fédéré spécifique ni la contrainte de déploiement associée. Ceci
+suggère que l'essentiel du bénéfice ne vient pas de la construction FedPer en tant que
+telle, mais de la possibilité de personnaliser légèrement la tête après coup -- une
+piste probablement plus simple à déployer en pratique ; et (6)~pousse cette logique
+plus loin hors contrainte TinyML (Section~\ref{subsec:fedrep_scaffold}) en
 combinant tête multi-couches, DP restreint à l'extracteur et SCAFFOLD : sur les clients
 informatifs, la hiérarchie FedProx+DP ($42{,}7\,\%$) $<$ FedPer ($48{,}4\,\%$) $<$
 FedRep+SCAFFOLD ($59{,}9\,\%$, aussi nettement plus stable) est statistiquement nette --
@@ -1474,23 +1482,12 @@ contrainte de taille de modèle. Dans tous les cas, ces architectures de
 personnalisation réduisent l'écart sans jamais le faire disparaître : même
 FedRep+SCAFFOLD reste loin d'un pouvoir discriminant pleinement satisfaisant sur les
 clients les plus atypiques, cohérent avec le constat (0) que le problème de fond est
-l'hétérogénéité elle-même, pas seulement le choix d'architecture FL.
-
-\textbf{Le résultat le plus directement actionnable de ce travail, cependant, ne vient
-d'aucune des architectures ci-dessus.} L'isolation du facteur granularité
-(Section~\ref{subsec:duration_vs_granularity}) montre qu'un simple fine-tuning hors
-ligne de la seule tête de classification, pendant 8 époques, sur le checkpoint
-FedProx+DP \emph{déjà existant} et sans aucune modification du pipeline
-d'entraînement fédéré, atteint $55{,}88 \pm 2{,}35\,\%$ de balanced-accuracy sur les
-clients informatifs -- \textbf{davantage que FedPer} ($48{,}44 \pm 3{,}65\,\%$), une
-architecture qui nécessite pourtant un chemin d'entraînement fédéré dédié, une
-sauvegarde de tête par client et une méthodologie d'évaluation propre. Pour un
-déploiement réel, ceci suggère qu'il n'est probablement pas nécessaire de complexifier
-l'architecture fédérée elle-même pour obtenir l'essentiel du gain de personnalisation :
-un post-traitement léger et peu coûteux à intégrer (geler l'extracteur, fine-tuner la
-tête sur les données locales après réception du modèle global standard) suffit, avec
-une charge d'ingénierie et de déploiement nettement moindre que celle de FedPer ou de
-FedRep+SCAFFOLD.
+l'hétérogénéité elle-même, pas seulement le choix d'architecture FL. Le point (5bis)
+mérite d'être retenu comme le résultat le plus directement actionnable pour un
+déploiement réel : un post-traitement léger (geler l'extracteur, fine-tuner la tête sur
+les données locales après réception du modèle global standard) suffit à obtenir
+l'essentiel du gain de personnalisation, avec une charge d'ingénierie nettement moindre
+que celle de FedPer ou de FedRep+SCAFFOLD.
 
 \subsubsection{Limites et travaux futurs}
 \label{subsec:synthesis_limits}
