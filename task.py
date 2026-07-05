@@ -109,14 +109,14 @@ PROCESSED_DIR = "data_nurse/processed"
 
 def preprocess_if_needed() -> list:
     """
-    Pre-extract sliding window features for all 14 clients once.
+    Pre-extract sliding window features for all 15 clients once.
     Saves results to data_nurse/processed/client_{node_id}.pt.
     This saves ~95% RAM during simulation.
     """
     os.makedirs(PROCESSED_DIR, exist_ok=True)
     client_ids_path = os.path.join(PROCESSED_DIR, "client_ids.pt")
 
-    # If client_ids.pt exists and all 14 client files exist, load and return
+    # If client_ids.pt exists and all client files exist, load and return
     if os.path.exists(client_ids_path):
         try:
             client_ids = torch.load(client_ids_path, weights_only=False)

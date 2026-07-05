@@ -2,17 +2,22 @@
 %% Apprentissage fédéré : principes et mise en œuvre
 %% Détection du stress chez les infirmières hospitalières (Projet HEART)
 
-\documentclass[manuscript, screen, review]{jair}
+\documentclass{article}
+\usepackage{amsmath, amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
 
-\setcopyright{cc}
-\acmDOI{10.1613/jair.1.xxxxx}
+%\setcopyright{cc}
+%\acmDOI{10.1613/jair.1.xxxxx}
 
-\JAIRAE{Clément Frassier}
-\JAIRTrack{Applications}
-\acmVolume{4}
-\acmArticle{6}
-\acmMonth{8}
-\acmYear{2026}
+%\JAIRAE{Clément Frassier}
+%\JAIRTrack{Applications}
+%\acmVolume{4}
+%\acmArticle{6}
+%\acmMonth{8}
+%\acmYear{2026}
 
 \RequirePackage[
   datamodel=acmdatamodel,
@@ -248,9 +253,16 @@ Sur ces 11 clients, une prédiction constante obtient mécaniquement $100\,\%$ d
 \emph{indépendamment de la qualité du modèle}. Seuls \textbf{4 clients} (identifiés
 ci-après comme les clients 4, 5, 8 et 12) ont un test-set réellement mixte, et sont donc
 les seuls à porter un signal informatif sur la capacité de généralisation du modèle.
-Conséquence directe pour la suite de ce document : \textbf{toute métrique regroupant les
-15 clients est mécaniquement tirée vers le haut par ces 11 clients triviaux}, et ne
-reflète qu'imparfaitement la performance clinique réelle. Chaque tableau de résultats de
+\textbf{Nuance empirique} : en pratique, les modèles entraînés sur ce jeu de données
+apprennent un biais fort vers la classe majoritaire globale (stress, $86\,\%$ du
+pooled) -- ce biais produit une accuracy quasi-parfaite sur les 10 des 11 clients
+mono-classe dont l'unique classe présente est cette classe majoritaire, mais joue dans
+le sens opposé sur le client 3, seul mono-classe sur la classe minoritaire
+(non-stress) : son accuracy y est proche de $0\,\%$ avec FL+DP (et $59{,}8\,\%$ avec le
+centralisé), pas $100\,\%$. Conséquence directe pour la suite de ce document :
+\textbf{toute métrique regroupant les 15 clients est fortement déformée par ces 11
+clients triviaux} (tirée vers le haut par la plupart, vers le bas par le client 3), et
+ne reflète qu'imparfaitement la performance clinique réelle. Chaque tableau de résultats de
 ce document rapporte donc systématiquement deux chiffres côte à côte : la métrique
 regroupée sur les 15 clients (comparable à la littérature FL standard, où cette
 composition de classe est rarement examinée client par client) et une métrique
@@ -474,8 +486,10 @@ une comparaison à armes égales. La précision brute étant peu informative sur
 jeu de test aussi déséquilibré (une prédiction constante ``stress'' obtiendrait déjà
 86,0~\%), nous rapportons également la balanced-accuracy et le F1 macro. Mais la
 balanced-accuracy groupée sur 15 clients hérite elle-même d'une limite : 11 de ces
-clients ont un test-set mono-classe (Section~\ref{subsec:dataset}), où ils obtiennent
-mécaniquement $100\,\%$ quel que soit le modèle. Nous rapportons donc systématiquement,
+clients ont un test-set mono-classe (Section~\ref{subsec:dataset}), où le biais du
+modèle vers la classe majoritaire globale produit une accuracy quasi-parfaite pour la
+plupart d'entre eux (à l'exception du client 3, seul mono-classe sur la classe
+minoritaire -- voir la nuance détaillée Section~\ref{subsec:dataset}). Nous rapportons donc systématiquement,
 à côté de la métrique pooled, la même métrique restreinte aux 4 clients au test-set
 réellement mixte (4, 5, 8, 12) -- la mesure la plus représentative de la performance
 clinique réelle, discutée en détail Section~\ref{subsec:why_cent_wins}.
@@ -497,7 +511,7 @@ centralisé.
     \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $42{,}73 \pm 0{,}97\,\%$ & $45{,}73 \pm 1{,}54\,\%$ \\
     F1 macro (pooled, 15 clients) & $45{,}4 \pm 0{,}2\,\%$           & $58{,}56 \pm 1{,}26\,\%$ \\
     \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $0{,}2047 \pm 0{,}0232$ & $0{,}2669 \pm 0{,}0197$ \\
-    Précision INT8 (interne, pondérée par client) & $81{,}62 \pm 0{,}17\,\%$ & $81{,}43 \pm 1{,}13\,\%$ \\
+    Précision INT8 (interne, pondérée par client) & $81{,}57 \pm 0{,}31\,\%$ & $81{,}43 \pm 1{,}13\,\%$ \\
     Erreur de quantification (interne)  & $\approx -0{,}05\,\%$      & $0{,}52 \pm 0{,}65\,\%$ \\
     Taille modèle FP32          & 5,32~Ko                            & 5,32~Ko \\
     Communication par round     & 5,32~Ko                            & n/a \\
@@ -606,7 +620,7 @@ sur le test-set groupé, en fonction du multiplicateur de bruit $\sigma$.
     $\sigma$ & $\varepsilon$ (round 30) & Précision INT8 (interne) & Balanced-acc. (groupée) \\
     \midrule
     0,6 & $5{,}29 \pm 0{,}30$ & $81{,}70 \pm 0{,}15\,\%$ & $47{,}87 \pm 0{,}47\,\%$ \\
-    0,8 & $2{,}18 \pm 0{,}12$ & $81{,}86 \pm 0{,}14\,\%$ & $47{,}65 \pm 0{,}16\,\%$ \\
+    0,8 & $2{,}18 \pm 0{,}12$ & $81{,}60 \pm 0{,}26\,\%$ & $47{,}77 \pm 0{,}26\,\%$ \\
     1,0 & $1{,}32 \pm 0{,}13$ & $81{,}43 \pm 0{,}46\,\%$ & $47{,}85 \pm 0{,}24\,\%$ \\
     1,4 & $0{,}82 \pm 0{,}06$ & $81{,}50 \pm 0{,}43\,\%$ & $47{,}67 \pm 0{,}32\,\%$ \\
     1,8 & $0{,}54 \pm 0{,}04$ & $81{,}60 \pm 0{,}17\,\%$ & $48{,}12 \pm 0{,}38\,\%$ \\
@@ -640,7 +654,7 @@ modèle après les époques d'entraînement local FedProx de ce round.
     $\sigma$ & Modèle Global (interne) & Écart local $-$ global \\
     \midrule
     0,6 & $78{,}08 \pm 1{,}04\,\%$ & $+0{,}61 \pm 0{,}85$ pts \\
-    0,8 & $77{,}47 \pm 0{,}36\,\%$ & $+1{,}12 \pm 0{,}47$ pts \\
+    0,8 & $77{,}64 \pm 0{,}41\,\%$ & $+0{,}86 \pm 0{,}57$ pts \\
     1,0 & $77{,}75 \pm 0{,}42\,\%$ & $+0{,}47 \pm 0{,}75$ pts \\
     1,4 & $77{,}48 \pm 0{,}43\,\%$ & $+0{,}81 \pm 0{,}85$ pts \\
     1,8 & $78{,}13 \pm 0{,}75\,\%$ & $+0{,}28 \pm 0{,}88$ pts \\
@@ -716,9 +730,9 @@ signe d'absence de signal -- exactement le piège identifié
 Section~\ref{subsec:why_cent_wins}. Pour vérifier ce point sur le scénario du nouvel
 arrivant, et pousser le test jusqu'au cas le plus défavorable, nous répétons la même
 procédure (exclusion totale de l'entraînement, 30 rounds, $\sigma=0{,}8$, 3 graines,
-8 époques d'adaptation) sur le client 5 -- précisément le client identifié
-Section~\ref{subsec:why_cent_wins} comme concentrant 99,9~\% des erreurs confiantes du
-modèle FL+DP global.
+8 époques d'adaptation) sur le client 5 -- l'un des 4 clients informatifs, où se
+concentre une part substantielle ($12{,}7\,\%$) des erreurs confiantes du modèle
+FL+DP global (détail complet par client Section~\ref{subsec:why_cent_wins}).
 
 \begin{table}[h!]
   \centering
@@ -873,7 +887,7 @@ première couche linéaire (\texttt{fc1.weight}).
     \midrule
     Centralisé (std.\ globale)  & $9{,}4467 \pm 1{,}0336$ & $7{,}1129 \pm 0{,}5652$ \\
     FL + DP ($\sigma = 0{,}6$)  & $2{,}9734 \pm 0{,}2251$ & $0{,}8979 \pm 0{,}0547$ \\
-    FL + DP ($\sigma = 0{,}8$)  & $3{,}2638 \pm 0{,}4708$ & $0{,}9624 \pm 0{,}0361$ \\
+    FL + DP ($\sigma = 0{,}8$)  & $3{,}3718 \pm 0{,}1742$ & $0{,}9616 \pm 0{,}0701$ \\
     FL + DP ($\sigma = 1{,}8$)  & $3{,}0734 \pm 0{,}3360$ & $1{,}4376 \pm 0{,}1326$ \\
     \bottomrule
   \end{tabular}
@@ -894,7 +908,7 @@ round 30, juste avant et juste après l'appel à \texttt{get\_epsilon()} d'Opacu
     $\sigma$ & Niveau de bruit & Avant \texttt{get\_epsilon()} & Pendant \texttt{get\_epsilon()} \\
     \midrule
     0,6 & Faible    & $0{,}18 \pm 0{,}00$~Mo & $33{,}65 \pm 3{,}30$~Mo \\
-    0,8 & Modéré-faible & $0{,}18 \pm 0{,}00$~Mo & $20{,}30 \pm 1{,}48$~Mo \\
+    0,8 & Modéré-faible & $0{,}18 \pm 0{,}00$~Mo & $20{,}48 \pm 1{,}50$~Mo \\
     1,0 & Modéré    & $0{,}18 \pm 0{,}00$~Mo & $16{,}05 \pm 1{,}70$~Mo \\
     1,4 & Fort      & $0{,}18 \pm 0{,}00$~Mo & $13{,}44 \pm 1{,}00$~Mo \\
     1,8 & Très fort & $0{,}37 \pm 0{,}42$~Mo$^{*}$ & $11{,}34 \pm 0{,}43$~Mo \\
@@ -1023,17 +1037,24 @@ hétérogènes (Section~\ref{subsec:dataset}) domine le coût mesuré ; la confi
 différentielle y ajoute un supplément mesurable mais net à moins que ne le suggère la
 métrique pooled.
 
-\paragraph{Concentration des erreurs, revisitée.} Une inspection par client de l'AUC
-pooled avait révélé que 99,9~\% des fenêtres où le modèle FL+DP est confiant à tort
-proviennent d'un seul client (le client 5) -- interprété comme un cas de
-non-stationnarité Non-IID localisée plutôt qu'une inversion systémique de l'agrégation.
-Ce constat se lit maintenant différemment à la lumière de ce qui précède : le client 5
-est l'un des 4 seuls clients à porter un signal informatif du tout -- il n'est donc pas
-surprenant que les erreurs du modèle s'y concentrent, puisque c'est justement l'un des
-rares endroits où il y a quelque chose de non trivial à réussir ou à rater. Le
-diagnostic (non-stationnarité Non-IID entre clients, pas un bug d'agrégation) reste
-valable, mais s'inscrit maintenant dans un problème plus large touchant aussi le
-centralisé, pas une pathologie propre au FL.
+\paragraph{Concentration des erreurs, revisitée.} Une inspection par client des
+fenêtres où le modèle FL+DP est confiant à tort (probabilité prédite $>0{,}9$ pour la
+classe prédite), agrégée sur les 25 checkpoints de la grille, montre que le client 3
+concentre à lui seul $31{,}1\,\%$ de l'ensemble de ces erreurs -- premier contributeur
+sur les 25 checkpoints sans exception -- suivi des 4 clients informatifs (client 12 :
+$29{,}3\,\%$, client 8 : $19{,}4\,\%$, client 5 : $12{,}7\,\%$, client 4 : $6{,}3\,\%$) ;
+à eux cinq, ces clients totalisent $98{,}9\,\%$ des erreurs confiantes, les 10 autres
+clients mono-classe n'en représentant collectivement qu'environ $1\,\%$. Le mécanisme
+diffère selon le cas : sur les 4 clients informatifs, il s'agit d'un signal réellement
+difficile à apprendre (paragraphes précédents) ; sur le client 3, c'est le même biais
+de classe majoritaire déjà noté Section~\ref{subsec:dataset} qui joue cette fois en sa
+défaveur (son unique classe présente en test est la classe minoritaire globale), un
+phénomène plus mécanique que les 4 clients informatifs mais qui n'en confirme pas moins
+le constat central : les erreurs du modèle FL+DP se concentrent presque exclusivement
+sur les clients où il y a réellement quelque chose de non trivial à réussir ou à rater
+(qu'il s'agisse d'un signal difficile ou d'un biais de classe qui s'inverse), pas sur
+les 10 clients mono-classe alignés avec le biais majoritaire. Ce constat s'inscrit dans
+un problème plus large touchant aussi le centralisé, pas une pathologie propre au FL.
 
 \paragraph{Une mitigation testée : loss pondérée par classe.} Puisque le déséquilibre
 de classe par client (Section~\ref{subsec:dataset}) semble au cœur du problème, une
@@ -1119,8 +1140,8 @@ fait \textbf{plus représentative d'un déploiement réel} que le modèle unique
     \toprule
     Métrique & FedProx + DP & FedPer \\
     \midrule
-    Accuracy (pooled, 15 clients)      & $82{,}02 \pm 0{,}62\,\%$ & $83{,}21 \pm 1{,}65\,\%$ \\
-    Balanced-accuracy (pooled, 15 clients) & $47{,}86 \pm 0{,}35\,\%$ & $65{,}36 \pm 2{,}14\,\%$ \\
+    Accuracy (pooled, 15 clients)      & $82{,}02 \pm 0{,}62\,\%$ & $82{,}97 \pm 2{,}07\,\%$ \\
+    Balanced-accuracy (pooled, 15 clients) & $47{,}86 \pm 0{,}35\,\%$ & $65{,}06 \pm 2{,}72\,\%$ \\
     \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $42{,}73 \pm 0{,}97\,\%$ & $\mathbf{48{,}44 \pm 3{,}65\,\%}$ \\
     \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $0{,}2047 \pm 0{,}0232$ & $\mathbf{0{,}4417 \pm 0{,}1022}$ \\
     Communication (FIT, moyenne) & $5{,}320$~Ko          & $5{,}188$~Ko ($-2{,}5\,\%$) \\
@@ -1133,8 +1154,8 @@ fait \textbf{plus représentative d'un déploiement réel} que le modèle unique
   cliniquement.}
 \end{table}
 
-Sur la métrique pooled, l'écart est très marqué (Welch $t=40{,}36$,
-$p=1{,}7\times10^{-24}$ ; Mann-Whitney $U=625/625$, séparation complète) -- mais ce
+Sur la métrique pooled, l'écart est très marqué (Welch $t=30{,}69$,
+$p=3{,}1\times10^{-21}$ ; Mann-Whitney $U=625/625$, séparation complète) -- mais ce
 chiffre est gonflé par les 11 clients mono-classe (Section~\ref{subsec:dataset}), sur
 lesquels les deux architectures obtiennent des scores très proches et souvent
 identiques. \textbf{Sur les 4 clients informatifs, l'écart réel est plus modeste mais
@@ -1168,9 +1189,11 @@ extracteur, surpasse nettement le fine-tuning du réseau entier, probablement en
 limitant le surapprentissage sur le peu de données locales disponibles par client -- et
 la \emph{durée} compte aussi, mais beaucoup plus modestement (+1 à +2 points,
 $p<0{,}02$).
-Fait notable, l'accuracy brute progresse elle aussi légèrement ($+1{,}19$ point,
-$p=1{,}97\times10^{-3}$) : FedPer n'échange donc pas de la précision brute contre du
-rappel équilibré, les deux progressent ensemble ici.
+L'accuracy brute progresse elle aussi, mais de façon marginale et à peine significative
+($+0{,}95$ point, $p=4{,}0\times10^{-2}$) : FedPer n'échange donc pas la précision brute
+contre du rappel équilibré, mais ce gain conjoint sur l'accuracy est ténu, à la
+différence du gain net et hautement significatif observé sur la balanced-accuracy et
+l'AUC.
 
 \subsection{Durée ou granularité ? La granularité domine, la durée compte un peu}
 \label{subsec:duration_vs_granularity}
@@ -1426,7 +1449,7 @@ Ce travail, appuyé sur une recherche sur grille systématique couvrant 25 runs 
 aboutit à un résultat plus fondamental que la comparaison FL-vs-centralisé qui en était
 le point de départ : \textbf{(0)~l'hétérogénéité extrême entre infirmières limite la
 généralisation de toute architecture testée, centralisée comprise}. 11 des 15 clients
-ont un test-set mono-classe (Section~\ref{subsec:dataset}), qui gonfle mécaniquement
+ont un test-set mono-classe (Section~\ref{subsec:dataset}), qui déforme fortement
 toute métrique groupée sur 15 clients ; restreinte aux 4 clients au test-set réellement
 mixte, la mesure la plus honnête cliniquement, le centralisé lui-même s'effondre
 (balanced-accuracy $45{,}73\,\%$, AUC $0{,}267$, sous le hasard,
