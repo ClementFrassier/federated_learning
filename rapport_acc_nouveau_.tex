@@ -930,8 +930,15 @@ modèle.
 
 \paragraph{Sur les clients informatifs, le centralisé s'effondre aussi.} Restreinte à
 ces 4 clients, la balanced-accuracy du centralisé tombe à $45{,}73 \pm 1{,}54\,\%$ --
-à peine au-dessus du hasard, et son AUC-ROC à $0{,}2669 \pm 0{,}0197$. Par la même
-logique déjà établie pour le diagnostic du client 5 plus bas dans cette section :
+à peine au-dessus du hasard, et son AUC-ROC à $0{,}2669 \pm 0{,}0197$. \textbf{Prudence
+sur cet effectif} : cette AUC groupée repose sur seulement 4 clients, un effectif
+restreint du même ordre de grandeur que celui pour lequel ce document applique déjà une
+réserve explicite (les 25 fenêtres non-stress du client 5 seul,
+Tableau~\ref{tab:late_joiner_recall}) -- une partie de l'écart à $0{,}5$ pourrait relever
+du bruit d'échantillonnage plutôt que d'une relation systématiquement apprise à l'envers,
+même si la cohérence de signe avec le diagnostic par client ci-dessous rend cette lecture
+peu probable. Par la même logique déjà établie pour le diagnostic du client 5 plus bas
+dans cette section :
 \textbf{une AUC significativement inférieure à $0{,}5$ ne signale pas une absence de
 signal, mais un classement partiellement \emph{inversé}} -- les probabilités prédites
 par le modèle centralisé classent les fenêtres de test dans le sens contraire de la
@@ -955,6 +962,34 @@ clients les plus atypiques'' -- l'écart réel entre les deux (3 à 5 points de
 balanced-accuracy selon la métrique) est un désavantage marginal du FL par-dessus un
 problème de fond commun aux
 deux, pas la preuve d'un FL structurellement inadapté.
+
+\paragraph{Significativité statistique de l'écart centralisé vs FL, sur les clients
+informatifs.} Un test de Welch et un test de Mann-Whitney ont été conduits sur la
+balanced-accuracy des 4 clients informatifs : centralisé (5 graines) contre FL+DP
+(25 valeurs, $5\sigma \times$ 5 graines), et centralisé contre FL sans DP (5 graines).
+Résultat, cohérent avec la décomposition qui suit : \textbf{centralisé vs FL+DP est
+statistiquement significatif} (Welch $t=4{,}21$, $p=9{,}8\times10^{-3}$ ; Mann-Whitney
+$U=123/125$, $p=5{,}6\times10^{-5}$), mais \textbf{centralisé vs FL sans DP ne l'est
+pas} (Welch $t=0{,}44$, $p=0{,}68$ ; Mann-Whitney $U=15/25$, $p=0{,}69$) -- sur ces
+clients précis, la fédération seule (sans confidentialité) n'est pas statistiquement
+distinguable du centralisé, et c'est l'ajout du bruit DP-SGD qui crée l'écart mesurable
+avec le centralisé. Une nuance par rapport à la métrique pooled, où l'essentiel de
+l'écart était attribué à la décentralisation plutôt qu'à la confidentialité -- cohérent
+avec le constat déjà fait que le coût du bruit DP est proportionnellement plus visible
+sur les clients difficiles que sur la métrique groupée.
+
+\textbf{Limite à ne pas occulter sur la portée de cette significativité.} Les 25 (ou 5)
+valeurs testées proviennent de 5 graines d'entraînement et 5 valeurs de $\sigma$ -- des
+sources de bruit d'entraînement, pas de diversité clinique. La significativité mesurée
+démontre que l'écart est \emph{reproductible d'une graine et d'un niveau de bruit à
+l'autre, sur ces 4 clients précis} ; elle ne démontre pas que le phénomène se
+généraliserait à un 5\textsuperscript{e} profil de client au test-set mixte, puisque ce
+jeu de données n'en fournit aucun autre pour le vérifier. C'est une caractéristique
+structurelle de ce dataset (seulement 4 clients au test-set réellement mixte,
+Section~\ref{subsec:dataset}), pas une faiblesse de la méthode statistique employée --
+mais elle borne strictement la portée de la conclusion : un résultat solide sur
+\emph{ces} 4 infirmières, pas encore une généralisation démontrée à toute population de
+patientes hétérogènes.
 
 \paragraph{Décomposition fédération vs confidentialité, sur les deux métriques.}
 Le Tableau~\ref{tab:dp_decomposition} isole la contribution du bruit DP-SGD :
@@ -1302,7 +1337,12 @@ toute métrique groupée sur 15 clients ; restreinte aux 4 clients au test-set r
 mixte, la mesure la plus honnête cliniquement, le centralisé lui-même s'effondre
 (balanced-accuracy $45{,}73\,\%$, AUC $0{,}267$, sous le hasard,
 Section~\ref{subsec:why_cent_wins}) -- une limite de fond partagée par toutes les
-architectures, pas un problème propre au FL.
+architectures, pas un problème propre au FL. \textbf{Portée à garder à l'esprit} : la
+significativité statistique de cet écart ($p<10^{-4}$ par endroits) est reproductible
+d'une graine et d'un niveau de bruit à l'autre, mais porte structurellement sur
+seulement 4 clients au test-set mixte -- ce jeu de données n'en offre pas d'autre pour
+vérifier la généralisation à un 5\textsuperscript{e} profil clinique
+(Section~\ref{subsec:why_cent_wins}).
 
 Sur cette base, ce travail montre qu'il est possible de construire un système FL
 opérationnel qui : (1)~fournit une garantie formelle $(\varepsilon,
