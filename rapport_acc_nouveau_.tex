@@ -1203,12 +1203,18 @@ test $t$ reste la lecture appropriée ici.
 
 \textbf{Correction pour comparaisons multiples.} Quatre tests $t$ appariés sont menés
 sur ce même jeu de résultats ; une correction de Bonferroni ($\alpha = 0{,}05/4 =
-0{,}0125$) est donc appliquée par prudence. Trois des quatre comparaisons y survivent
-(durée, réseau entier, $p=1{,}3\times10^{-3}$ ; durée, tête seule, $p=1{,}2\times10^{-2}$ ;
-granularité, 8 époques, $p=6{,}2\times10^{-3}$) ; seule la granularité à 30 époques
-($p=2{,}2\times10^{-2}$) ne survit pas au seuil corrigé. Cela n'invalide pas la
-conclusion sur la granularité, déjà solidement établie par la comparaison à 8 époques,
-mais tempère la certitude statistique de sa réplication à 30 époques précisément.
+0{,}0125$) est donc appliquée par prudence. \textbf{Les deux effets de durée et la
+granularité à 8 époques restent significatifs après correction} (durée, réseau entier,
+$p=1{,}3\times10^{-3}$ ; durée, tête seule, $p=1{,}2\times10^{-2}$ ; granularité,
+8 époques, $p=6{,}2\times10^{-3}$, un ordre de grandeur sous le seuil ajusté) ; \textbf{
+seule la granularité à 30 époques ne survit plus au seuil corrigé}
+($p=2{,}2\times10^{-2}$). Ceci est cohérent avec le reste de la section plutôt qu'une
+anomalie isolée : à 30 époques, le réseau entier a eu plus de temps pour rattraper une
+partie de son retard grâce à l'effet de durée démontré ci-dessus, ce qui resserre
+mécaniquement l'écart entre les deux granularités et fragilise statistiquement
+précisément cette comparaison-là. Le message principal n'en est pas affaibli : c'est la
+comparaison la moins centrale des deux (celle où l'écart se resserre déjà), pas celle
+qui porte la conclusion.
 
 \textbf{À granularité égale, personnaliser plus longtemps aide un peu ; à durée égale,
 personnaliser seulement la tête aide beaucoup plus.} La tête seule limite probablement
@@ -1510,9 +1516,12 @@ Plusieurs limites méritent d'être reportées honnêtement :
   après l'autre (Section~\ref{subsec:duration_vs_granularity}), en partant à chaque
   fois du même checkpoint FedProx+DP et avec un fine-tuning re-seedé (5 graines,
   test $t$ apparié) : la granularité domine largement (+6,5 à +7,4 points,
-  $p<0{,}03$) -- personnaliser uniquement la tête surpasse nettement le fine-tuning
-  du réseau entier, à extracteur de départ identique -- et la durée compte aussi,
-  plus modestement (+1 à +2 points, $p<0{,}02$). Deux corrections successives ont été
+  $p<0{,}03$ -- solidement établi à 8 époques, $p=6{,}2\times10^{-3}$, encore un ordre
+  de grandeur sous le seuil de Bonferroni ajusté pour les 4 tests menés,
+  $\alpha=0{,}0125$) -- personnaliser uniquement la tête surpasse nettement le
+  fine-tuning du réseau entier, à extracteur de départ identique -- et la durée compte
+  aussi, plus modestement (+1 à +2 points, $p<0{,}02$, les deux valeurs survivant à
+  cette même correction). Deux corrections successives ont été
   nécessaires pour arriver à ce résultat : un premier test comparant directement
   FedPer (son propre extracteur) au fine-tuning complet de FedProx confondait la
   granularité avec le fait que FedPer part d'un extracteur entraîné selon un régime
