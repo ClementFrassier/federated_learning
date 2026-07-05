@@ -494,9 +494,9 @@ centralisé.
     \midrule
     Précision (test-set groupé)  & $82{,}0 \pm 0{,}5\,\%$            & $81{,}95 \pm 0{,}89\,\%$ \\
     Balanced-accuracy (pooled, 15 clients)  & $47{,}9 \pm 0{,}2\,\%$ & $57{,}84 \pm 1{,}16\,\%$ \\
-    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{42{,}73 \pm 0{,}97\,\%}$ & $\mathbf{45{,}73 \pm 1{,}54\,\%}$ \\
+    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $42{,}73 \pm 0{,}97\,\%$ & $45{,}73 \pm 1{,}54\,\%$ \\
     F1 macro (pooled, 15 clients) & $45{,}4 \pm 0{,}2\,\%$           & $58{,}56 \pm 1{,}26\,\%$ \\
-    \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{0{,}2047 \pm 0{,}0232}$ & $\mathbf{0{,}2669 \pm 0{,}0197}$ \\
+    \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $0{,}2047 \pm 0{,}0232$ & $0{,}2669 \pm 0{,}0197$ \\
     Précision INT8 (interne, pondérée par client) & $81{,}62 \pm 0{,}17\,\%$ & $81{,}43 \pm 1{,}13\,\%$ \\
     Erreur de quantification (interne)  & $\approx -0{,}05\,\%$      & $0{,}52 \pm 0{,}65\,\%$ \\
     Taille modèle FP32          & 5,32~Ko                            & 5,32~Ko \\
@@ -542,7 +542,7 @@ graines :
     \midrule
     Accuracy         & $81{,}95 \pm 0{,}89\,\%$ & $83{,}10 \pm 0{,}92\,\%$ & $82{,}00 \pm 0{,}62\,\%$ \\
     Balanced-accuracy (pooled, 15 clients) & $57{,}84 \pm 1{,}16\,\%$ & $48{,}68 \pm 0{,}73\,\%$ & $47{,}83 \pm 0{,}35\,\%$ \\
-    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{45{,}73 \pm 1{,}54\,\%}$ & $\mathbf{45{,}18 \pm 2{,}38\,\%}$ & $\mathbf{42{,}73 \pm 0{,}97\,\%}$ \\
+    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $45{,}73 \pm 1{,}54\,\%$ & $45{,}18 \pm 2{,}38\,\%$ & $42{,}73 \pm 0{,}97\,\%$ \\
     F1 macro (pooled, 15 clients) & $58{,}56 \pm 1{,}26\,\%$ & $46{,}10 \pm 0{,}75\,\%$ & $45{,}33 \pm 0{,}28\,\%$ \\
     \bottomrule
   \end{tabular}
@@ -930,20 +930,30 @@ modèle.
 
 \paragraph{Sur les clients informatifs, le centralisé s'effondre aussi.} Restreinte à
 ces 4 clients, la balanced-accuracy du centralisé tombe à $45{,}73 \pm 1{,}54\,\%$ --
-à peine au-dessus du hasard, et son AUC-ROC à $0{,}2669 \pm 0{,}0197$, \textbf{en
-dessous du hasard}. Le balayage de seuil de décision (de $10^{-3}$ à $0{,}99$, sur les
-probabilités déjà produites, aucun réentraînement) est sans appel : le seuil optimal du
-centralisé se replie lui aussi sur $0{,}001$ (prédire ``stress'' quasi systématiquement),
-plafonnant à \emph{exactement} $50{,}00 \pm 0{,}00\,\%$ -- la signature précise d'une
-absence totale de signal exploitable, identique à celle que ce document attribuait
-jusqu'ici au FL seul. Le FL+DP, sur ces mêmes 4 clients, fait à peine moins bien
-(balanced-accuracy $42{,}73 \pm 0{,}97\,\%$, AUC $0{,}2047 \pm 0{,}0232$, meilleur seuil
-également $0{,}001$, plafond à $46{,}98 \pm 1{,}28\,\%$ -- sans même atteindre le plancher
-théorique). \textbf{Le message central de ce document change en conséquence} : il ne
+à peine au-dessus du hasard, et son AUC-ROC à $0{,}2669 \pm 0{,}0197$. Par la même
+logique déjà établie pour le diagnostic du client 5 plus bas dans cette section :
+\textbf{une AUC significativement inférieure à $0{,}5$ ne signale pas une absence de
+signal, mais un classement partiellement \emph{inversé}} -- les probabilités prédites
+par le modèle centralisé classent les fenêtres de test dans le sens contraire de la
+vérité terrain plus souvent que ne le ferait un classement aléatoire. Le centralisé n'a
+donc pas simplement ``rien appris'' sur ces clients ; il y a appris une relation
+partiellement fausse. Le balayage de seuil de décision (de $10^{-3}$ à $0{,}99$, sur les
+probabilités déjà produites, aucun réentraînement) le confirme indirectement : le seuil
+optimal du centralisé se replie sur $0{,}001$ (prédire ``stress'' quasi systématiquement,
+soit inverser la prédiction par défaut plutôt que la calibrer), plafonnant à
+\emph{exactement} $50{,}00 \pm 0{,}00\,\%$ -- une correction de seuil qui compense
+l'inversion sans la résoudre, identique dans sa forme à ce que ce document attribuait
+jusqu'ici au FL seul. Le FL+DP, sur ces mêmes 4 clients, présente la même signature,
+un peu plus marquée (balanced-accuracy $42{,}73 \pm 0{,}97\,\%$, AUC
+$0{,}2047 \pm 0{,}0232$, meilleur seuil également $0{,}001$, plafond à
+$46{,}98 \pm 1{,}28\,\%$ -- sans même atteindre le plancher théorique, signe que
+l'inversion y est moins complètement compensable par le seul choix du seuil).
+\textbf{Le message central de ce document change en conséquence} : il ne
 s'agit pas de ``pourquoi le centralisé résout un problème que le FL ne résout pas'',
-mais de ``pourquoi aucune des deux architectures ne généralise sur les clients les plus
-atypiques'' -- l'écart réel entre les deux (3 à 5 points de balanced-accuracy selon la
-métrique) est un désavantage marginal du FL par-dessus un problème de fond commun aux
+mais de ``pourquoi aucune des deux architectures n'apprend une relation fiable sur les
+clients les plus atypiques'' -- l'écart réel entre les deux (3 à 5 points de
+balanced-accuracy selon la métrique) est un désavantage marginal du FL par-dessus un
+problème de fond commun aux
 deux, pas la preuve d'un FL structurellement inadapté.
 
 \paragraph{Décomposition fédération vs confidentialité, sur les deux métriques.}
@@ -1060,8 +1070,8 @@ fait \textbf{plus représentative d'un déploiement réel} que le modèle unique
     \midrule
     Accuracy (pooled, 15 clients)      & $82{,}02 \pm 0{,}62\,\%$ & $83{,}21 \pm 1{,}65\,\%$ \\
     Balanced-accuracy (pooled, 15 clients) & $47{,}86 \pm 0{,}35\,\%$ & $65{,}36 \pm 2{,}14\,\%$ \\
-    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{42{,}73 \pm 0{,}97\,\%}$ & $\mathbf{48{,}44 \pm 3{,}65\,\%}$ \\
-    \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $\mathbf{0{,}2047 \pm 0{,}0232}$ & $\mathbf{0{,}4417 \pm 0{,}1022}$ \\
+    \textbf{Balanced-accuracy (4 clients informatifs)}\textsuperscript{\ddag} & $42{,}73 \pm 0{,}97\,\%$ & $\mathbf{48{,}44 \pm 3{,}65\,\%}$ \\
+    \textbf{AUC-ROC (4 clients informatifs)}\textsuperscript{\ddag} & $0{,}2047 \pm 0{,}0232$ & $\mathbf{0{,}4417 \pm 0{,}1022}$ \\
     Communication (FIT, moyenne) & $5{,}320$~Ko          & $5{,}188$~Ko ($-2{,}5\,\%$) \\
     \bottomrule
   \end{tabular}
