@@ -1411,9 +1411,9 @@ des paramètres et agit comme une régularisation implicite de type Tikhonov
 
 Comme le montre le Tableau~\ref{tab:dynamic_range}, cette régularisation compresse
 fortement la plage dynamique des poids par rapport au centralisé. À $\sigma = 0{,}8$,
-la plage dynamique globale du modèle FL + DP est de $3{,}26 \pm 0{,}47$ (contre
-$9{,}45 \pm 1{,}03$ pour le centralisé, soit un facteur $\approx 3$), et tombe à
-$0{,}96 \pm 0{,}04$ sur la première couche (contre $7{,}11 \pm 0{,}57$). Les poids du
+la plage dynamique globale du modèle FL + DP est de $3{,}37 \pm 0{,}17$ (contre
+$9{,}45 \pm 1{,}03$ pour le centralisé, soit un facteur $\approx 2{,}8$), et tombe à
+$0{,}96 \pm 0{,}07$ sur la première couche (contre $7{,}11 \pm 0{,}57$). Les poids du
 modèle FL étant nettement plus resserrés autour de zéro, ils se répartissent de
 manière plus uniforme sur la grille de quantification INT8 à 256 niveaux, subissant
 moins d'effet de saturation ou de perte de résolution que ceux du modèle centralisé,
@@ -1485,7 +1485,7 @@ $\varepsilon \in [0{,}54;\, 5{,}29]$ ; (5)~teste une architecture qui supprime
 l'agrégation de la couche de classification (FedPer, Section~\ref{subsec:fedper}) : sur
 les clients informatifs, la balanced-accuracy remonte à $48{,}44 \pm 3{,}65\,\%$ (contre
 $42{,}73\,\%$ pour FedProx+DP standard, +5,7 points, statistiquement significatif mais
-d'ampleur modeste comparé au gonflement apparent sur la métrique pooled, +17,5 points) --
+d'ampleur modeste comparé au gonflement apparent sur la métrique pooled, +17,2 points) --
 au prix d'une contrainte de déploiement propre à cette architecture (pas de modèle
 global unique, chaque client garde sa propre tête de classification) ; (5bis)~un test
 complémentaire isolant la granularité (Section~\ref{subsec:duration_vs_granularity})
@@ -1595,7 +1595,7 @@ Plusieurs limites méritent d'être reportées honnêtement :
   plus honnête cliniquement. Les écarts relatifs entre conditions restent
   qualitativement dans le même sens sur les deux métriques, mais d'ampleur nettement
   réduite sur la métrique informative pour la comparaison centralisé-vs-FL (10 points
-  $\to$ 3 points) et FedPer-vs-FedProx (17,5 points $\to$ 5,7 points) -- un changement
+  $\to$ 3 points) et FedPer-vs-FedProx (17,2 points $\to$ 5,7 points) -- un changement
   de magnitude, pas seulement un ajustement cosmétique, qui a motivé la reformulation du
   message central de ce document (Section~\ref{subsec:why_cent_wins}).
 \end{itemize}
