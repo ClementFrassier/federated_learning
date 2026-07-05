@@ -1145,72 +1145,74 @@ contre 8 époques de fine-tuning post-hoc pour FedProx, Tableau~\ref{tab:ablatio
 (2)~la \textbf{granularité} (seule la tête de classification pour FedPer, contre le
 réseau entier pour le fine-tuning post-hoc de FedProx). \textbf{Ces deux facteurs ont
 depuis été isolés séparément} (Section~\ref{subsec:duration_vs_granularity}, à partir
-du même checkpoint de départ dans les deux cas) : la \emph{durée} n'explique pas
-l'écart (8 contre 30 époques donnent un résultat statistiquement équivalent), mais la
-\emph{granularité} compte réellement -- personnaliser uniquement la tête, à partir du
-même extracteur, surpasse nettement le fine-tuning du réseau entier, probablement en
-limitant le surapprentissage sur le peu de données locales disponibles par client.
+du même checkpoint de départ et avec un fine-tuning re-seedé pour un test statistique
+apparié sur 5 graines) : la \emph{granularité} domine largement (+6,5 à +7,4 points de
+balanced-accuracy, $p<0{,}03$) -- personnaliser uniquement la tête, à partir du même
+extracteur, surpasse nettement le fine-tuning du réseau entier, probablement en
+limitant le surapprentissage sur le peu de données locales disponibles par client -- et
+la \emph{durée} compte aussi, mais beaucoup plus modestement (+1 à +2 points,
+$p<0{,}02$).
 Fait notable, l'accuracy brute progresse elle aussi légèrement ($+1{,}19$ point,
 $p=1{,}97\times10^{-3}$) : FedPer n'échange donc pas de la précision brute contre du
 rappel équilibré, les deux progressent ensemble ici.
 
-\subsection{Durée ou granularité ? La durée est écartée, la granularité compte
-réellement}
+\subsection{Durée ou granularité ? La granularité domine, la durée compte un peu}
 \label{subsec:duration_vs_granularity}
 
-Pour trancher lequel des deux facteurs ci-dessus domine, deux tests successifs sont
-menés hors ligne sur FedProx+DP ($\sigma=0{,}8$, checkpoint final, 5 graines), sur les
-données d'entraînement locales de chacun des 4 clients informatifs.
-
-\textbf{Premier test, la durée seule} : fine-tuning du réseau entier (même granularité
-que l'ablation post-hoc originale, Tableau~\ref{tab:ablation_b}), 8 contre 30 époques.
-Résultat net : la balanced-accuracy ne bouge pas de façon significative entre les deux
-durées -- \textbf{la durée n'est pas le facteur explicatif}. Ce test isole correctement
-la durée (même checkpoint de départ, seule la durée varie) et cette conclusion est
-solide.
-
-\textbf{Second test, la granularité isolée correctement} -- un premier test comparant
-naïvement le fine-tuning complet à FedPer (Tier 1) confondait la granularité avec le
-fait que FedPer part de \emph{son propre} extracteur, entraîné selon un régime
-d'agrégation entièrement différent (30 rounds sans terme proximal, jamais influencé par
-un `fc3` agrégé) : une comparaison entre deux modèles de base différents, pas une
-comparaison à granularité isolée. Corrigé en repartant du \textbf{même} checkpoint
-FedProx+DP dans toutes les conditions, en ne faisant varier que ce qui est dégelé
-pendant le fine-tuning :
+Pour trancher lequel des deux facteurs ci-dessus domine, FedProx+DP ($\sigma=0{,}8$,
+checkpoint final) est fine-tuné hors ligne sur les données d'entraînement locales de
+chacun des 4 clients informatifs, en repartant du \textbf{même} checkpoint dans toutes
+les conditions et en ne faisant varier qu'un facteur à la fois -- durée (8 contre 30
+époques) et granularité (réseau entier dégelé contre tête \texttt{fc3} seule dégelée).
+Un premier test comparait directement le fine-tuning complet à FedPer (Tier 1) : cette
+comparaison confondait la granularité avec le fait que FedPer part de \emph{son propre}
+extracteur, entraîné selon un régime d'agrégation entièrement différent (30 rounds sans
+terme proximal, jamais influencé par un \texttt{fc3} agrégé) -- corrigé ci-dessous en
+repartant systématiquement du même point de départ. Le fine-tuning est explicitement
+re-seedé à chaque graine pour permettre un test statistique apparié rigoureux (5 valeurs
+par condition, comme partout ailleurs dans ce document).
 
 \begin{center}
 \begin{tabular}{lcc}
   \toprule
   Condition (même checkpoint de départ) & 8 époques & 30 époques \\
   \midrule
-  Réseau entier dégelé      & $47{,}86\,\%$ & $49{,}48\,\%$ \\
-  \textbf{Tête seule (\texttt{fc3}) dégelée} & $\mathbf{56{,}48\,\%}$ & $\mathbf{56{,}73\,\%}$ \\
+  Réseau entier dégelé      & $48{,}49 \pm 1{,}33\,\%$ & $50{,}43 \pm 1{,}71\,\%$ \\
+  \textbf{Tête seule (\texttt{fc3}) dégelée} & $\mathbf{55{,}88 \pm 2{,}35\,\%}$ & $\mathbf{56{,}93 \pm 2{,}66\,\%}$ \\
   \bottomrule
 \end{tabular}
 \end{center}
-{\footnotesize Balanced-accuracy pooled sur les 4 clients informatifs. Référence :
-FedProx+DP non adapté $42{,}73\,\%$ ; FedPer (son propre extracteur, 30 rounds continus)
-$48{,}44\,\%$.}
+{\footnotesize Balanced-accuracy (moyenne $\pm$ écart-type, 5 graines), pooled sur les
+4 clients informatifs. Référence : FedProx+DP non adapté $42{,}73 \pm 0{,}97\,\%$ ;
+FedPer (son propre extracteur, 30 rounds continus) $48{,}44 \pm 3{,}65\,\%$.}
 
-\textbf{À partir du même point de départ, la personnalisation tête-seule surpasse
-nettement le fine-tuning du réseau entier} -- et surpasse même la tête de FedPer
-entraînée en continu sur son propre extracteur. \textbf{La granularité compte donc
-réellement}, dans le sens inverse de ce qu'on pourrait attendre naïvement (moins de
-paramètres ajustés fait mieux, pas moins bien) : avec très peu de données locales par
-client, ajuster seulement les 34 paramètres de la tête limite le surapprentissage que
-risque le réseau entier (1\,362 paramètres) sur un jeu de données aussi restreint --
-une explication plausible, cohérente avec les pratiques usuelles de fine-tuning sur
-domaine cible réduit, mais non vérifiée plus avant ici. Un point de rigueur relevé en
-construisant ce test : le fine-tuning n'étant pas explicitement re-seedé à chaque appel
-(l'ordre de mélange des mini-lots varie), les valeurs exactes de ce tableau comportent
-une part de bruit d'exécution supplémentaire, non quantifiée -- sans remettre en cause
-l'écart entre les deux granularités, large devant ce bruit.
+Un test $t$ apparié (5 graines, chaque graine comparée à elle-même entre conditions)
+quantifie les deux effets : \textbf{la granularité domine largement}
+($+7{,}39$ points à 8 époques, $t=5{,}26$, $p=6{,}2\times10^{-3}$ ; $+6{,}51$ points à
+30 époques, $t=3{,}64$, $p=2{,}2\times10^{-2}$), \textbf{mais la durée compte aussi,
+modestement} ($+1{,}94$ point pour le réseau entier, $t=8{,}11$,
+$p=1{,}3\times10^{-3}$ ; $+1{,}05$ point pour la tête seule, $t=4{,}43$,
+$p=1{,}2\times10^{-2}$) -- \textbf{une révision par rapport à un premier test non
+seedé qui avait conclu, à tort, que la durée n'avait aucun effet} : l'absence de
+contrôle du bruit d'ordre de mélange masquait un effet réel mais petit, cohérent en
+signe sur les 5 graines une fois ce bruit maîtrisé. Le test de Wilcoxon apparié, en
+complément, plafonne à $p=0{,}0625$ dans les quatre cas -- un artefact de plancher
+propre à $n=5$ paires dont toutes les différences ont le même signe (le $p$ minimal
+atteignable avec si peu de graines), pas un signe de significativité douteuse ; le
+test $t$ reste la lecture appropriée ici.
+
+\textbf{À granularité égale, personnaliser plus longtemps aide un peu ; à durée égale,
+personnaliser seulement la tête aide beaucoup plus.} La tête seule limite probablement
+le surapprentissage sur le peu de données locales disponibles par client (34
+paramètres ajustés contre 1\,362 pour le réseau entier) -- une explication plausible,
+cohérente avec les pratiques usuelles de fine-tuning sur domaine cible réduit, mais non
+vérifiée plus avant ici.
 
 Ce résultat révise la lecture de la Section~\ref{subsec:fedper} : l'avantage de FedPer
-ne vient pas seulement du fait qu'une personnalisation ait lieu, mais bien en partie de
-sa \emph{granularité} (tête seule) -- un choix de conception qui s'avère pertinent, pas
-un simple détail d'implémentation. Il reste vrai, en revanche, que sa durée
-d'exposition (30 rounds continus) n'est pas ce qui explique sa performance.
+vient à la fois du fait qu'une personnalisation ait lieu et, dans une bien moindre
+mesure, de sa durée continue -- mais surtout de sa \emph{granularité} (tête seule), le
+facteur dominant, un choix de conception qui s'avère pertinent et pas un simple détail
+d'implémentation.
 
 \paragraph{Limite à ne pas occulter.} L'absence de modèle global unique a un coût côté
 déploiement : il n'existe pas de firmware universel à distribuer à toutes les
@@ -1493,21 +1495,23 @@ Plusieurs limites méritent d'être reportées honnêtement :
   architecture MLP. Elles ne doivent pas être généralisées sans validation sur
   d'autres jeux de données et tailles de modèles.
   \item \textbf{FedPer vs FedProx, durée et granularité : isolés séparément, à partir
-  du même checkpoint.} L'écart initialement observé entre FedPer et FedProx fine-tuné
-  (Section~\ref{subsec:fedper}) aurait pu refléter soit la \emph{durée} de
-  personnalisation, soit la \emph{granularité}. Isolés l'un après l'autre
-  (Section~\ref{subsec:duration_vs_granularity}), en partant à chaque fois du même
-  checkpoint FedProx+DP pour ne faire varier qu'un seul facteur à la fois : la durée
-  n'explique pas l'écart (8 contre 30 époques, résultat équivalent), mais la
-  granularité si -- personnaliser uniquement la tête surpasse nettement le fine-tuning
-  du réseau entier, à extracteur de départ identique. Un premier test comparant
-  directement FedPer (son propre extracteur) au fine-tuning complet de FedProx avait
-  conclu par erreur que ni l'un ni l'autre ne comptait ; cette comparaison confondait
-  la granularité avec le fait que FedPer part d'un extracteur entraîné selon un régime
-  différent -- corrigé en isolant chaque facteur à partir d'un point de départ commun.
-  Le fine-tuning effectué pour ce test n'étant pas explicitement re-seedé, les valeurs
-  exactes comportent une part de bruit d'exécution non quantifiée, sans remettre en
-  cause l'écart mesuré entre granularités.
+  du même checkpoint, avec test statistique apparié.} L'écart initialement observé
+  entre FedPer et FedProx fine-tuné (Section~\ref{subsec:fedper}) aurait pu refléter
+  soit la \emph{durée} de personnalisation, soit la \emph{granularité}. Isolés l'un
+  après l'autre (Section~\ref{subsec:duration_vs_granularity}), en partant à chaque
+  fois du même checkpoint FedProx+DP et avec un fine-tuning re-seedé (5 graines,
+  test $t$ apparié) : la granularité domine largement (+6,5 à +7,4 points,
+  $p<0{,}03$) -- personnaliser uniquement la tête surpasse nettement le fine-tuning
+  du réseau entier, à extracteur de départ identique -- et la durée compte aussi,
+  plus modestement (+1 à +2 points, $p<0{,}02$). Deux corrections successives ont été
+  nécessaires pour arriver à ce résultat : un premier test comparant directement
+  FedPer (son propre extracteur) au fine-tuning complet de FedProx confondait la
+  granularité avec le fait que FedPer part d'un extracteur entraîné selon un régime
+  différent ; un deuxième test, corrigeant ce point mais sans re-seeder le
+  fine-tuning, avait conclu à tort que la durée n'avait aucun effet -- le bruit
+  d'ordre de mélange non contrôlé masquait un effet réel mais petit. Le test de
+  Wilcoxon apparié plafonne à $p=0{,}0625$ sur les quatre comparaisons, un artefact de
+  plancher propre à $n=5$ paires de même signe, pas une significativité douteuse.
   \item \textbf{Domination des métriques groupées par les clients mono-classe --
   corrigé dans ce document, pas seulement documenté.} Découvert lors de l'évaluation de
   FedRep+SCAFFOLD (Section~\ref{subsec:fedrep_scaffold}) : 11 des 15 clients ont un
