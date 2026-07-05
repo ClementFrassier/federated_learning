@@ -978,6 +978,22 @@ l'écart était attribué à la décentralisation plutôt qu'à la confidentiali
 avec le constat déjà fait que le coût du bruit DP est proportionnellement plus visible
 sur les clients difficiles que sur la métrique groupée.
 
+\textbf{Vérification que ce contraste (significatif contre non significatif) ne
+reflète pas simplement un déséquilibre de puissance statistique} entre les deux
+comparaisons (FL+DP : $n=25$ contre FL sans DP : $n=5$, la même taille que le
+centralisé) -- un piège classique déjà démonté ailleurs dans ce document (Section
+\ref{subsec:duration_vs_granularity}). Deux vérifications indépendantes : (1)~la
+taille d'effet (Cohen's $d$), insensible à ce déséquilibre, reste très supérieure pour
+centralisé vs FL+DP ($d=2{,}81$, effet large) que pour centralisé vs FL sans DP
+($d=0{,}28$, effet petit) -- un facteur 10 entre les deux tailles d'effet, pas
+seulement entre les deux $p$-values ; (2)~un sous-échantillonnage répété de FL+DP à
+$n=5$ (2\,000 tirages sans remise, pour égaler exactement la puissance du test
+centralisé vs FL sans DP) reste significatif à $p<0{,}05$ dans $99{,}7\,\%$ des tirages
+(p médian $=9{,}2\times10^{-3}$, quasi identique au $p=9{,}8\times10^{-3}$ sur
+l'échantillon complet). Le contraste observé n'est donc pas un artefact de taille
+d'échantillon : à puissance égale, l'écart centralisé/FL+DP reste presque toujours
+détecté, contrairement à l'écart centralisé/FL sans DP.
+
 \textbf{Limite à ne pas occulter sur la portée de cette significativité.} Les 25 (ou 5)
 valeurs testées proviennent de 5 graines d'entraînement et 5 valeurs de $\sigma$ -- des
 sources de bruit d'entraînement, pas de diversité clinique. La significativité mesurée
@@ -1459,6 +1475,22 @@ personnalisation réduisent l'écart sans jamais le faire disparaître : même
 FedRep+SCAFFOLD reste loin d'un pouvoir discriminant pleinement satisfaisant sur les
 clients les plus atypiques, cohérent avec le constat (0) que le problème de fond est
 l'hétérogénéité elle-même, pas seulement le choix d'architecture FL.
+
+\textbf{Le résultat le plus directement actionnable de ce travail, cependant, ne vient
+d'aucune des architectures ci-dessus.} L'isolation du facteur granularité
+(Section~\ref{subsec:duration_vs_granularity}) montre qu'un simple fine-tuning hors
+ligne de la seule tête de classification, pendant 8 époques, sur le checkpoint
+FedProx+DP \emph{déjà existant} et sans aucune modification du pipeline
+d'entraînement fédéré, atteint $55{,}88 \pm 2{,}35\,\%$ de balanced-accuracy sur les
+clients informatifs -- \textbf{davantage que FedPer} ($48{,}44 \pm 3{,}65\,\%$), une
+architecture qui nécessite pourtant un chemin d'entraînement fédéré dédié, une
+sauvegarde de tête par client et une méthodologie d'évaluation propre. Pour un
+déploiement réel, ceci suggère qu'il n'est probablement pas nécessaire de complexifier
+l'architecture fédérée elle-même pour obtenir l'essentiel du gain de personnalisation :
+un post-traitement léger et peu coûteux à intégrer (geler l'extracteur, fine-tuner la
+tête sur les données locales après réception du modèle global standard) suffit, avec
+une charge d'ingénierie et de déploiement nettement moindre que celle de FedPer ou de
+FedRep+SCAFFOLD.
 
 \subsubsection{Limites et travaux futurs}
 \label{subsec:synthesis_limits}
