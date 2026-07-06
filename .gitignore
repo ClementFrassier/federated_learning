@@ -22,3 +22,7 @@ data_nurse/archive.zip
 # Results and local models
 resultsfeat/
 *.pt
+
+# Dataset WESAD (raw ~19 GB download + preprocessed cache)
+data_wesad/
+wesad_flwr/data_wesad_processed/

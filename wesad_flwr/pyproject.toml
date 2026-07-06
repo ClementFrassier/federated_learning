@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wesad-stress-fl"
+version = "1.0.0"
+description = "Federated Learning — WESAD Stress Detection (wrist-only, MLP Tiny + FedProx/FedPer + DP)"
+
+[tool.flwr.app]
+publisher = "clement"
+
+[tool.flwr.app.components]
+serverapp = "server_app:app"
+clientapp = "client_app:app"
+
+[tool.flwr.app.config]
+# ── Rounds ────────────────────────────────────────────────────────────────────
+num-server-rounds = 30
+
+# ── Modèle & entraînement ─────────────────────────────────────────────────────
+local-epochs   = 2
+batch-size     = 64
+learning-rate  = 0.01
+momentum       = 0.9
+proximal_mu    = 0.05
+
+# ── Differential Privacy (Opacus) ─────────────────────────────────────────────
+noise-multiplier = 0.8
+max-grad-norm    = 1.0
+dp-delta         = 1e-5
+partition-seed   = 42
+model-type       = "tiny"
+
+# ── Ablations / modes (mêmes clés que le pipeline infirmières) ────────────────
+dp-enabled       = true
+excluded-node-id = -1
+loss-type        = "ce"
+personalization-mode = "none"  # "fedper" = fc1/fc2 agrégés, fc3 (tête) jamais transmise
