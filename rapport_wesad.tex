@@ -77,16 +77,19 @@ dépasse significativement les deux autres conditions}
 ($87{,}6 \pm 3{,}8\,\%$, $p<10^{-5}$ dans les deux comparaisons). L'AUC-ROC
 reste dans tous les cas entre $0{,}88$ et $0{,}91$ : aucune des trois
 conditions n'échoue à généraliser sur ce jeu de données. Le scénario du
-nouveau bracelet révèle un résultat plus inattendu : la performance jour~1
-(zéro adaptation) d'un modèle jamais entraîné sur les données d'un sujet est
-\textbf{bimodale selon la graine} (3 des 5 graines testées atteignent
-$97\,\%$ de balanced-accuracy dès le jour~1, 2 s'effondrent à
-$\approx 50\,\%$), un phénomène déjà présent avant toute adaptation. La
+nouveau bracelet, répété sur deux sujets exclus indépendamment, révèle un
+résultat plus inattendu : la performance jour~1 (zéro adaptation) d'un
+modèle jamais entraîné sur les données d'un sujet dépend fortement du sujet
+exclu, pas d'une propriété générale de l'entraînement fédéré, un premier
+sujet montrant une \textbf{bimodalité selon la graine} (3 des 5 graines
+testées atteignent $97\,\%$ de balanced-accuracy dès le jour~1, 2
+s'effondrent à $\approx 50\,\%$) tandis qu'un second généralise de façon
+stable et quasi identique sur les 5 graines ($99{,}0\,\%$). La
 personnalisation locale non régularisée qui suit (SGD standard, sans terme
 proximal ni bruit DP) n'améliore ni ne dégrade la performance de façon
-statistiquement significative en moyenne ($p=0{,}42$), mais peut faire
-chuter substantiellement une graine initialement performante par dérive vers
-une prédiction quasi constante ``stress''.
+statistiquement significative en moyenne pour ces deux sujets, mais peut
+faire chuter substantiellement une graine initialement performante par
+dérive vers une prédiction quasi constante ``stress''.
 
 {\bf Conclusions:}
 Sur un protocole de laboratoire standardisé, l'apprentissage fédéré avec
@@ -511,6 +514,22 @@ mais sans jamais renverser le sens de la conclusion.
   dans les deux cas.
 \end{itemize}
 
+\paragraph{Correction pour comparaisons multiples.} Le paragraphe ci-dessus
+effectue 6 tests (3 paires de conditions $\times$ 2 métriques) sur le même
+jeu de données ; une correction de Bonferroni est donc appliquée par
+prudence ($\alpha = 0{,}05/6 \approx 0{,}0083$). Aucune conclusion ne change
+sous ce seuil corrigé : les trois comparaisons significatives au seuil non
+corrigé le restent très largement sous le seuil corrigé (FedPer vs
+FedProx+DP, balanced-accuracy $p=1{,}0\times10^{-5}$ et AUC
+$p=4{,}8\times10^{-5}$ ; FedPer vs Centralisé, balanced-accuracy
+$p=3{,}6\times10^{-6}$, tous plusieurs ordres de grandeur sous
+$0{,}0083$), et les deux comparaisons non significatives au seuil non
+corrigé (Centralisé vs FedProx+DP, $p=0{,}44$ et $p=0{,}70$ ; FedPer vs
+Centralisé sur l'AUC, $p=0{,}13$) le restent \emph{a fortiori} sous un seuil
+plus strict. La correction ne modifie donc aucune conclusion de ce document,
+mais elle est appliquée explicitement pour éviter toute ambiguïté sur le
+traitement des comparaisons multiples.
+
 \paragraph{La métrique groupée peut inverser le signe de la comparaison.}
 Sur la métrique \emph{groupée} (15 sujets), Centralisé vs FedProx+DP est
 statistiquement significatif ($t=-6{,}48$, $p=2{,}4\times10^{-6}$), mais dans
@@ -555,7 +574,7 @@ $\sigma$ plus élevé serait nécessaire ici pour viser un $\varepsilon$
 cible de l'ordre de l'unité, une piste non explorée dans cette grille
 (Section~\ref{sec:limits}).
 
-\subsection{Coût de communication}
+\subsection{Coût de communication et de calcul}
 
 Le modèle FedProx+DP transmet 5,32~Ko par round. FedPer transmet 5,19~Ko (la
 tête \texttt{fc3}, 34 paramètres sur 1~362, n'étant jamais transmise), un
@@ -563,21 +582,37 @@ gain de communication de $-2{,}5\,\%$, modeste mécaniquement puisque la
 tête ne représente qu'une fraction marginale d'une architecture déjà
 minuscule.
 
+Côté calcul, le temps d'entraînement local cumulé sur les 30 rounds (moyenné
+sur les 15 clients à chaque round, sommé sur l'ensemble du run) est de
+$40{,}4 \pm 5{,}7$~s pour FedProx+DP et $40{,}4 \pm 5{,}4$~s pour FedPer
+(moyenne sur 25 runs chacun, soit $\approx 1{,}35$~s de calcul local par
+client et par round en moyenne), contre $5{,}2 \pm 1{,}7$~s pour
+l'entraînement centralisé complet (30 époques sur l'ensemble des données
+poolées, 5 graines). Ces deux temps ne sont pas directement comparables
+(le centralisé entraîne un seul modèle une fois, quand le fédéré effectue
+30 rounds de calcul local distribué sur 15 clients, plus le calcul de
+l'accountant de confidentialité, non inclus dans cette mesure) : ce chiffre
+sert de repère d'ordre de grandeur, pas de comparaison équitable de coût
+total.
+
 \subsection{Scénario du nouveau bracelet}
 \label{subsec:new_joiner}
 
 Un déploiement réel implique qu'un nouveau bracelet rejoigne le système après
 que le modèle global a déjà été entraîné sur les autres utilisateurs, sans
-jamais avoir contribué lui-même. Pour simuler ce scénario, le sujet~2 (S4,
-test-set mixte, $32{,}5\,\%$ de stress) est totalement exclu de
-l'entraînement fédéré (sa contribution est neutralisée dans l'agrégation
-FedProx via un poids nul, \texttt{num-examples}$=0$) : le modèle global final
-n'a donc jamais vu ses données. Ce modèle est évalué directement sur les
-données du sujet~2 (``jour~1'', zéro adaptation), puis affiné localement par
-SGD standard (sans DP ni terme proximal, un entraînement purement local
-post-déploiement) pendant 8 époques, avec une évaluation \textbf{après chaque
-époque} pour observer la trajectoire d'adaptation, pas seulement un point
-d'arrivée.
+jamais avoir contribué lui-même. Pour simuler ce scénario, un sujet est
+totalement exclu de l'entraînement fédéré (sa contribution est neutralisée
+dans l'agrégation FedProx via un poids nul, \texttt{num-examples}$=0$) : le
+modèle global final n'a donc jamais vu ses données. Ce modèle est évalué
+directement sur les données du sujet exclu (``jour~1'', zéro adaptation),
+puis affiné localement par SGD standard (sans DP ni terme proximal, un
+entraînement purement local post-déploiement) pendant 8 époques, avec une
+évaluation \textbf{après chaque époque} pour observer la trajectoire
+d'adaptation, pas seulement un point d'arrivée. \textbf{Le scénario est
+répété sur deux sujets exclus indépendamment} (sujet~2, S4, $32{,}5\,\%$ de
+stress en test ; sujet~5, S7, $33{,}3\,\%$ de stress en test), 5 graines
+chacun, pour vérifier si les constats faits sur le premier sujet exclu se
+généralisent à un second.
 
 \begin{table}[h!]
   \centering
@@ -598,23 +633,19 @@ d'arrivée.
   \end{tabular}
 \end{table}
 
-\textbf{Résultat principal : une forte variance de la performance jour~1
-selon la graine, que le fine-tuning ne corrige pas de façon fiable.} Le
-détail par graine (Tableau~\ref{tab:new_joiner_per_seed}) révèle un
-comportement bimodal, déjà présent \emph{avant} toute adaptation locale :
-les graines 7, 31415 et 42 atteignent $97{,}0$--$97{,}1\,\%$ de
+Le détail par graine du sujet~2 (Tableau~\ref{tab:new_joiner_per_seed})
+révèle un comportement bimodal, déjà présent \emph{avant} toute adaptation
+locale : les graines 7, 31415 et 42 atteignent $97{,}0$--$97{,}1\,\%$ de
 balanced-accuracy dès le jour~1, tandis que les graines 123 et 2024
 s'effondrent à $50{,}0$--$51{,}9\,\%$ (le modèle global prédit déjà
 systématiquement ``stress'' sur les données du sujet~2, avant même toute
-adaptation locale). Cette bimodalité est une propriété de l'entraînement
-fédéré lui-même (elle dépend de la graine d'initialisation et de mélange des
-données, pas du fine-tuning), pas un artefact de l'adaptation qui suit.
+adaptation locale).
 
 \begin{table}[h!]
   \centering
   \small
-  \caption{Détail par graine : balanced-accuracy jour~1 contre après 8
-  époques de fine-tuning local.}
+  \caption{Détail par graine, sujet~2 : balanced-accuracy jour~1 contre
+  après 8 époques de fine-tuning local.}
   \label{tab:new_joiner_per_seed}
   \begin{tabular}{ccc}
     \toprule
@@ -629,15 +660,32 @@ données, pas du fine-tuning), pas un artefact de l'adaptation qui suit.
   \end{tabular}
 \end{table}
 
-Le fine-tuning local (SGD standard, sans terme proximal ni bruit DP, donc
-sans aucune régularisation ramenant vers le modèle global) n'améliore ni ne
-dégrade la performance de façon statistiquement significative en moyenne
-(test $t$ apparié jour-1-vs-après-8-époques sur les 5 graines, $t=0{,}91$,
-$p=0{,}42$ ; test de Wilcoxon apparié, $p=1{,}00$) : la baisse moyenne
-observée dans le Tableau~\ref{tab:new_joiner} ($78{,}6\,\%$ à $71{,}7\,\%$)
-est tirée presque entièrement par une seule graine (42, qui chute de
-$97{,}1\,\%$ à $59{,}6\,\%$), pas par un effet systématique du fine-tuning.
-Pour les 4 autres graines, la performance reste quasiment inchangée après 8
+\textbf{La réplication sur le sujet~5 ne reproduit pas cette bimodalité.}
+Sur ce second sujet exclu, les 5 graines donnent une balanced-accuracy
+jour~1 \emph{identique} à la troisième décimale près ($99{,}04 \pm
+0{,}00\,\%$), et le fine-tuning ne change quasiment rien
+($99{,}23 \pm 0{,}38\,\%$ après 8 époques, $t=-1{,}00$, $p=0{,}37$) : ni
+bimodalité, ni dégradation. \textbf{La bimodalité jour~1 observée sur le
+sujet~2 n'est donc pas une propriété générale de l'entraînement fédéré sur
+ce jeu de données} : c'est une caractéristique propre à la difficulté ou à
+l'ambiguïté du profil physiologique du sujet exclu, pas un phénomène qui se
+reproduirait pour n'importe quel nouveau sujet. Avec seulement 2 sujets
+testés, on ne peut pas encore caractériser ce qui rend un sujet
+``difficile'' (sujet~2) plutôt que ``facile'' (sujet~5) à généraliser en
+zéro-shot ; l'hétérogénéité feature-wise mise en évidence en
+Section~\ref{subsec:label_vs_feature} (en particulier la variabilité du
+niveau tonique d'EDA) est une piste plausible, non vérifiée directement ici.
+
+Sur le sujet~2, le fine-tuning local (SGD standard, sans terme proximal ni
+bruit DP, donc sans aucune régularisation ramenant vers le modèle global)
+n'améliore ni ne dégrade la performance de façon statistiquement
+significative en moyenne (test $t$ apparié jour-1-vs-après-8-époques sur
+les 5 graines, $t=0{,}91$, $p=0{,}42$ ; test de Wilcoxon apparié,
+$p=1{,}00$) : la baisse moyenne observée dans le
+Tableau~\ref{tab:new_joiner} ($78{,}6\,\%$ à $71{,}7\,\%$) est tirée
+presque entièrement par une seule graine (42, qui chute de $97{,}1\,\%$ à
+$59{,}6\,\%$), pas par un effet systématique du fine-tuning. Pour les 4
+autres graines du sujet~2, la performance reste quasiment inchangée après 8
 époques (variations de moins de 2 points, à l'exception d'une légère
 amélioration pour la graine~7). L'AUC-ROC reste stable et élevé
 ($\approx 0{,}96$--$0{,}97$) sur l'ensemble de la trajectoire, y compris
@@ -648,65 +696,96 @@ mesure que l'entraînement local, non régularisé, déplace la distribution des
 probabilités prédites vers une prédiction quasi constante ``stress''
 (rappel stress $100\,\%$, rappel non-stress en chute).
 
-\textbf{Limite à garder à l'esprit} : ce résultat repose sur un seul sujet
-exclu (le sujet~2). C'est un cas illustratif, pas un résultat généralisable
-aux 15 sujets ; en particulier, la bimodalité observée jour~1 pourrait être
-propre à ce sujet et ne pas se retrouver avec un autre sujet exclu.
+\textbf{Limite à garder à l'esprit} : ce résultat repose sur seulement deux
+sujets exclus. C'est un cas illustratif, pas un résultat généralisable à
+l'ensemble des 15 sujets ; en particulier, rien ne garantit que ces deux
+profils (l'un bimodal, l'autre stable) couvrent l'ensemble des
+comportements possibles pour un sujet réellement nouveau.
 
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Pourquoi le FL ne coûte rien ici}
+\subsection{Homogénéité de label, hétérogénéité de features : deux
+constats distincts, pas contradictoires}
+\label{subsec:label_vs_feature}
 
-Le résultat central de ce travail, l'absence de coût statistiquement
-détectable du FL par rapport au centralisé, s'explique par la nature du
-protocole WESAD lui-même : un protocole de laboratoire standardisé et
-identique pour tous les sujets produit une distribution de données
-\textbf{quasi-IID} entre clients (Tableau~\ref{tab:class_composition}, écart
-de moins de 3 points de composition de classe entre les 8 sujets
-informatifs). Or c'est précisément l'hétérogénéité Non-IID entre clients,
-pas la fédération en tant que mécanisme, qui dégrade typiquement la
-convergence d'un système fédéré : FedProx existe justement pour corriger
-cette dérive quand elle survient (Section~\ref{subsec:fedprox}). Quand
-l'hétérogénéité entre clients est faible, ce mécanisme de correction n'a
-simplement rien à corriger, et le modèle fédéré converge vers une solution
-proche de ce qu'obtiendrait un entraînement centralisé sur les mêmes données.
+Les deux résultats centraux de ce travail, l'absence de coût du FL
+(Section~\ref{sec:results}) et le gain apporté par la personnalisation
+FedPer, reposent sur deux propriétés \emph{différentes} du jeu de données,
+qu'il convient de ne pas confondre sous le terme générique
+``hétérogénéité''.
+
+\textbf{Homogénéité label-wise.} Le Tableau~\ref{tab:class_composition}
+montre que la composition de classe (proportion de fenêtres stress) varie de
+moins de 3 points entre les 8 sujets informatifs (coefficient de variation
+$0{,}041$). C'est cette homogénéité \emph{du label} qui explique l'absence
+de coût du FL : c'est précisément l'hétérogénéité Non-IID de la
+distribution jointe (features, label) entre clients, pas la fédération en
+tant que mécanisme, qui dégrade typiquement la convergence d'un système
+fédéré, et FedProx existe justement pour corriger cette dérive quand elle
+survient (Section~\ref{subsec:fedprox}). Quand la composition de classe est
+homogène entre clients, ce mécanisme de correction n'a simplement rien à
+corriger de ce côté-là.
+
+\textbf{Hétérogénéité feature-wise.} Ceci ne dit rien, en revanche, sur
+l'homogénéité de la distribution des \emph{features} elles-mêmes. En
+calculant, pour chaque sujet, la moyenne de chaque canal physiologique sur
+l'ensemble de ses fenêtres, puis le coefficient de variation de cette
+moyenne \emph{entre sujets}, l'activité électrodermale (EDA) présente un
+coefficient de variation de $1{,}069$ (moyenne $1{,}81\,\mu\text{S}$,
+écart-type $1{,}93\,\mu\text{S}$, valeurs individuelles de $0{,}31$ à
+$7{,}17\,\mu\text{S}$), soit un ordre de grandeur au-dessus de
+l'homogénéité de la composition de classe ($0{,}041$). La température
+cutanée, à l'inverse, est nettement plus homogène entre sujets
+($\text{CV}=0{,}038$, $32{,}0 \pm 1{,}2\,^{\circ}\text{C}$) : l'hétérogénéité
+physiologique n'est donc pas uniforme sur tous les canaux, elle est
+concentrée sur l'EDA, le canal le plus individuellement variable en
+physiologie du stress. C'est cette hétérogénéité \emph{au niveau des
+covariables}, pas de la composition de classe, qui motive et explique le
+gain de FedPer (paragraphe suivant) : un modèle centralisé, même entraîné
+sur l'ensemble des données, doit trouver un compromis unique valable pour
+tous les sujets, alors que chaque individu a sa propre ligne de base
+électrodermale, indépendamment de tout état de stress.
 
 \subsection{Pourquoi la personnalisation dépasse le centralisé}
 
-Un modèle centralisé, même entraîné sur l'ensemble des données, doit trouver
-un compromis unique valable pour tous les sujets. Or chaque individu a sa
-propre ligne de base physiologique : une activité électrodermale de repos,
-une fréquence de pouls basale et une température cutanée qui varient d'une
-personne à l'autre indépendamment de tout stress. FedPer permet à la couche
-de classification finale de s'adapter à cette ligne de base individuelle
-sans que l'extracteur partagé n'ait besoin de la capturer, un degré de
-liberté que le centralisé n'offre pas. Ce mécanisme profite pleinement de la
-petite taille de la tête personnalisée (34 paramètres) au regard du volume de
-données locales disponibles par sujet, limitant le risque de sur-apprentissage
-qui affecterait une tête plus grande ou un réseau personnalisé dans son
+FedPer permet à la couche de classification finale de s'adapter à la ligne
+de base individuelle mise en évidence ci-dessus (en particulier le niveau
+tonique d'EDA, très variable d'un sujet à l'autre) sans que l'extracteur
+partagé n'ait besoin de la capturer lui-même, un degré de liberté que le
+centralisé n'offre pas. Ce mécanisme profite pleinement de la petite taille
+de la tête personnalisée (34 paramètres) au regard du volume de données
+locales disponibles par sujet, limitant le risque de sur-apprentissage qui
+affecterait une tête plus grande ou un réseau personnalisé dans son
 ensemble.
 
 \subsection{Le scénario du nouveau bracelet : une généralisation zéro-shot
-bimodale, un fine-tuning non régularisé au bénéfice non garanti}
+qui dépend du sujet, un fine-tuning non régularisé au bénéfice non garanti}
 
 Le résultat du scénario nouveau bracelet éclaire deux aspects distincts,
 qu'il convient de ne pas confondre. Premièrement, la généralisation
-``zéro-shot'' du modèle global à un sujet jamais vu est \textbf{bimodale
-selon la graine} (Section~\ref{subsec:new_joiner}) : pour certaines
-initialisations, le modèle agrégé généralise déjà très bien au nouveau
-sujet ($\approx 97\,\%$) ; pour d'autres, il s'effondre en une prédiction
-quasi constante avant même toute adaptation. C'est une propriété de
-l'entraînement fédéré lui-même (sensibilité à la graine), pas du fine-tuning
-qui suit. Deuxièmement, le fine-tuning post-hoc testé ici n'a
-\emph{aucun} des garde-fous dont bénéficie FedPer pendant l'entraînement
-fédéré (le terme proximal de FedProx et le bruit DP-SGD agissant comme
-régularisation implicite sur l'extracteur partagé, Section~\ref{subsec:fedper}) :
-c'est un entraînement purement local, sans ancrage au modèle global, sur un
-jeu de données minuscule ($\approx 316$ fenêtres). Statistiquement, ce
-fine-tuning non régularisé n'apporte ni gain ni perte fiable en moyenne sur
-les 5 graines testées, mais peut faire chuter substantiellement une graine
-initialement bien calibrée (Tableau~\ref{tab:new_joiner_per_seed}, graine~42).
+``zéro-shot'' du modèle global à un sujet jamais vu \textbf{dépend
+fortement du sujet exclu, pas d'une propriété générale de l'entraînement
+fédéré} (Section~\ref{subsec:new_joiner}) : pour le sujet~2, la performance
+jour~1 est bimodale selon la graine ($\approx 97\,\%$ pour certaines
+initialisations, $\approx 50\,\%$ pour d'autres) ; pour le sujet~5, elle est
+au contraire remarquablement stable et élevée sur les 5 graines
+($99{,}04 \pm 0{,}00\,\%$). Ceci suggère que la difficulté de généralisation
+zéro-shot est une propriété du \emph{profil physiologique du sujet exclu}
+(possiblement lié à l'hétérogénéité feature-wise de
+Section~\ref{subsec:label_vs_feature}), pas de l'entraînement fédéré en
+tant que tel ; avec seulement 2 sujets testés, cette explication reste une
+piste, pas une conclusion établie. Deuxièmement, le fine-tuning post-hoc
+testé ici n'a \emph{aucun} des garde-fous dont bénéficie FedPer pendant
+l'entraînement fédéré (le terme proximal de FedProx et le bruit DP-SGD
+agissant comme régularisation implicite sur l'extracteur partagé,
+Section~\ref{subsec:fedper}) : c'est un entraînement purement local, sans
+ancrage au modèle global, sur un jeu de données minuscule ($\approx 316$
+fenêtres). Statistiquement, ce fine-tuning non régularisé n'apporte ni
+gain ni perte fiable en moyenne sur le sujet~2 (5 graines testées), mais
+peut faire chuter substantiellement une graine initialement bien calibrée
+(Tableau~\ref{tab:new_joiner_per_seed}, graine~42) ; sur le sujet~5, il ne
+change quasiment rien, la performance jour~1 étant déjà proche du plafond.
 Ceci suggère qu'un fine-tuning local, pour être utilisé sans risque en
 pratique, gagnerait à intégrer un garde-fou explicite (terme proximal ancré
 au modèle global, ou arrêt anticipé sur un jeu de validation dédié), plutôt
@@ -723,9 +802,17 @@ que d'être laissé courir un nombre d'époques fixe sans surveillance.
   \item \textbf{$\mu$ de FedProx non ré-optimisé pour WESAD.} La valeur
   $\mu=0{,}05$ (Section~\ref{subsec:fedprox}) reste dans la plage usuelle de
   la littérature FedProx, mais n'a pas été balayée sur une grille dédiée à ce
-  jeu de données précis ; l'absence de coût du FL mesurée ici
-  (Section~\ref{sec:results}) pourrait masquer une sensibilité à ce paramètre
-  non explorée.
+  jeu de données précis. Une ablation rapide ($\mu \in \{0;\,0{,}05;\,0{,}1\}$,
+  $\sigma=0{,}8$, 3 graines, hors de la grille principale) montre une
+  balanced-accuracy sur les sujets informatifs de $85{,}9 \pm 5{,}1\,\%$
+  ($\mu=0$), $79{,}9 \pm 4{,}0\,\%$ ($\mu=0{,}05$) et $85{,}7 \pm 5{,}6\,\%$
+  ($\mu=0{,}1$) : $\mu=0{,}05$ donne, sur cet échantillon restreint, le
+  résultat le plus faible des trois, mais l'écart n'est pas significatif
+  (test $t$ apparié $\mu=0$ vs $\mu=0{,}05$, $p=0{,}44$ ; $\mu=0{,}1$ vs
+  $\mu=0{,}05$, $p=0{,}23$) : avec seulement 3 graines, cette ablation est
+  sous-dimensionnée pour trancher, mais suffit à indiquer qu'une
+  ré-optimisation de $\mu$ sur une grille complète serait une piste
+  raisonnable, pas nécessairement superflue.
   \item \textbf{Split chronologique et mono-classe protocolaire.} 7 des 15
   sujets ont un test-set mono-classe pour une raison propre à l'ordre du
   protocole WESAD (Section~\ref{sec:method}). Un split stratifié plutôt que
@@ -749,10 +836,12 @@ que d'être laissé courir un nombre d'époques fixe sans surveillance.
   comparaisons FL-vs-FL (25 valeurs), illustré par le cas de l'AUC
   FedPer-vs-Centralisé (Section~\ref{sec:results}), où l'effet est large mais
   non significatif.
-  \item \textbf{Scénario du nouveau bracelet limité à un seul sujet.} Un
-  résultat illustratif sur 5 graines (Section~\ref{subsec:new_joiner}), pas
-  une conclusion généralisable à l'ensemble des profils physiologiques
-  possibles ; la bimodalité jour-1 observée pourrait être propre au sujet~2.
+  \item \textbf{Scénario du nouveau bracelet limité à deux sujets.} Un
+  résultat illustratif sur 5 graines chacun (Section~\ref{subsec:new_joiner}),
+  pas une conclusion généralisable à l'ensemble des profils physiologiques
+  possibles ; les deux sujets testés montrent des comportements jour-1
+  opposés (bimodal pour l'un, stable pour l'autre), sans qu'on puisse encore
+  identifier ce qui distingue les deux profils.
   \item \textbf{Fine-tuning local non régularisé, à améliorer.} Le
   fine-tuning post-hoc testé (Section~\ref{subsec:new_joiner}) n'apporte pas
   de gain fiable en moyenne ($p=0{,}42$) et peut faire chuter substantiellement
