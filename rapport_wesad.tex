@@ -100,7 +100,15 @@ conservant un modèle déployable en 5,32~Ko. Ce résultat positionne le FL
 personnalisé non pas comme un compromis coûteux imposé par la confidentialité,
 mais comme une architecture au moins aussi performante que l'alternative
 centralisée pourtant non conforme aux principes de minimisation des données
-pour ce type de signal.
+pour ce type de signal. Au-delà de WESAD, ce travail illustre une leçon
+méthodologique transférable : la métrique groupée sur des clients
+mono-classe ne se contente pas de masquer un écart réel entre conditions,
+elle peut en \textbf{inventer un dans le mauvais sens} (ici, FedProx+DP
+paraît significativement meilleur que le centralisé sur la métrique
+groupée, alors que l'écart disparaît complètement une fois restreint aux
+clients informatifs) ; croiser systématiquement métrique groupée et métrique
+restreinte aux clients réellement informatifs reste nécessaire quel que soit
+le sens apparent de l'écart mesuré.
 \end{abstract}
 
 \received{6 July 2026}
@@ -940,6 +948,21 @@ un protocole quasi-IID comme WESAD, ce coût devient statistiquement
 indétectable, et une personnalisation légère suffit à dépasser le plafond
 centralisé théorique, tout en conservant un modèle déployable en 5,32~Ko sur
 microcontrôleur.
+
+Au-delà de ce résultat spécifique à WESAD, le constat le plus transférable de
+ce travail concerne la méthodologie d'évaluation elle-même
+(Section~\ref{sec:results}) : sur un jeu de données comportant des clients au
+test-set mono-classe, une métrique groupée ne se contente pas de masquer un
+écart réel entre deux conditions, elle peut en \textbf{inventer un dans le
+mauvais sens}. Ici, FedProx+DP paraît significativement meilleur que le
+centralisé sur la métrique groupée sur 15 sujets, un écart qui disparaît
+complètement une fois restreint aux 8 sujets au test-set réellement mixte.
+Cette observation établit une règle générale, indépendante du jeu de données
+ou de l'architecture testée : \textbf{une métrique groupée sur des clients
+mono-classe doit toujours être croisée avec la métrique restreinte aux
+clients réellement informatifs, quel que soit le sens de l'écart qu'elle
+suggère}, avant d'en tirer une conclusion sur le coût ou le bénéfice d'une
+architecture fédérée.
 
 \printbibliography
 
