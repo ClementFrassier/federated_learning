@@ -1,6 +1,5 @@
 %% JAIR Manuscript (acmart) - Clement Frassier
-%% Federated Learning for Stress Detection on WESAD (wrist-only, TinyML)
-%% Complementary case study to the nurse-stress-detection report
+%% Federated Learning for Stress Detection from a Wrist-Worn Wearable (WESAD)
 
 \documentclass{acmart}
 \usepackage{amsmath, amssymb}
@@ -8,6 +7,8 @@
 \usepackage{graphicx}
 \usepackage{hyperref}
 \usepackage{xcolor}
+\usepackage{enumitem}
+\setlist{itemsep=2pt, topsep=3pt}
 
 \RequirePackage[
   datamodel=acmdatamodel,
@@ -24,7 +25,7 @@
 
 \begin{document}
 
-\title[FL sur WESAD : cas de contrôle IID]{Apprentissage fédéré pour la détection du stress sur WESAD : un cas de contrôle quasi-IID face à l'hétérogénéité clinique réelle}
+\title[FL sur WESAD : la personnalisation dépasse le centralisé]{Détection fédérée du stress à partir d'un bracelet connecté : quand la personnalisation dépasse le centralisé}
 
 \author{Clement Frassier}
 \orcid{0009-0000-0000-0000}
@@ -37,50 +38,66 @@
 
 \begin{abstract}
 {\bf Background:}
-Le rapport principal de ce projet (détection du stress chez 15 infirmières
-hospitalières) a montré qu'une hétérogénéité clinique extrême limite la
-généralisation de toute architecture, centralisée comprise. Ce document teste
-la même question méthodologique sur un second jeu de données, WESAD
-\cite{schmidt2018wesad}, collecté en laboratoire selon un protocole contrôlé et
-identique pour tous les sujets, pour vérifier si le coût mesuré du FL persiste
-quand l'hétérogénéité entre clients est bien plus faible.
+Les signaux physiologiques mesurés par bracelet connecté (activité
+électrodermale, volume sanguin pulsé, température cutanée, accélération)
+constituent des données de santé à caractère personnel. Les centraliser sur un
+serveur unique pour entraîner un modèle de détection du stress crée un point
+de défaillance unique pour la vie privée et expose à des risques de
+ré-identification, ce qui rend l'apprentissage fédéré (FL) pertinent dès lors
+que le déploiement cible un bracelet grand public.
 
 {\bf Objectives:}
-Reproduire, sur WESAD, le même pipeline d'apprentissage fédéré (FedProx +
-DP-SGD, puis FedPer) que celui validé sur le jeu de données infirmières, en se
-restreignant aux capteurs du poignet (Empatica E4) pour rester dans une
-contrainte de déploiement TinyML réaliste, et comparer les résultats à une
-baseline centralisée non contrainte.
+Entraîner un modèle de détection binaire du stress (stress vs non-stress)
+directement exploitable sur un microcontrôleur (contrainte TinyML), sans
+jamais centraliser les données brutes des 15 sujets, avec une garantie
+formelle de confidentialité différentielle, puis quantifier précisément le
+coût de cette approche par rapport à un entraînement centralisé non contraint,
+et l'effet d'une architecture de personnalisation légère.
 
 {\bf Methods:}
-15 sujets, capteurs poignet uniquement (BVP 64~Hz, EDA 4~Hz, température 4~Hz,
-accélération 32~Hz, tous ramenés à 4~Hz commun), fenêtrage glissant identique
-au pipeline infirmières (60/30 échantillons, statistiques
-moyenne/écart-type/min/max), label binarisé stress (protocole TSST) contre
-non-stress (baseline, amusement, méditation). Même architecture MLP Tiny
-(1~362 paramètres, 5,32~Ko). Grille complète $5\sigma \times 5$ graines pour
-FedProx+DP et pour FedPer (50 runs fédérés), plus 5 graines centralisées.
+Jeu de données WESAD~\cite{schmidt2018wesad} (15 sujets), restreint aux
+capteurs du poignet (Empatica E4 : BVP, EDA, température, accélération) pour
+coller à un scénario de déploiement réaliste sur bracelet. Modèle MLP Tiny
+(1~362 paramètres, 5,32~Ko) entraîné via FedProx~\cite{li2020fedprox} et
+DP-SGD~\cite{abadi2016deep} (Opacus~\cite{opacus}), puis via
+FedPer~\cite{arivazhagan2019federated} (tête de classification jamais
+agrégée). Grille complète $5\sigma \times 5$ graines pour chacune des deux
+architectures fédérées (50 runs), comparée à une baseline centralisée sur 5
+graines. Une expérience complémentaire simule un nouveau bracelet rejoignant
+le système après coup : un sujet est totalement exclu de l'entraînement, puis
+son adaptation locale est mesurée époque par époque.
 
 {\bf Results:}
-Sur les 8 clients au test-set réellement mixte (7 des 15 sont mono-classe par
-construction chronologique du protocole, pas par hétérogénéité clinique),
-\textbf{aucun effondrement n'est observé} : balanced-accuracy
-$79{,}6 \pm 6{,}7\,\%$ pour FedProx+DP, $78{,}3 \pm 1{,}7\,\%$ pour le
-centralisé (écart non significatif, $p=0{,}44$), $87{,}6 \pm 3{,}8\,\%$ pour
-FedPer (significativement supérieur aux deux autres, $p<10^{-5}$). L'AUC-ROC
-reste toujours nettement au-dessus du hasard ($0{,}88$ à $0{,}91$ selon la
-condition), à l'opposé du $0{,}267$ mesuré sur les clients difficiles du jeu de
-données infirmières.
+Sur les 8 sujets au test-set réellement mixte (7 des 15 sont mono-classe par
+construction chronologique du protocole d'acquisition, Section~\ref{sec:method}),
+\textbf{le coût du FL par rapport au centralisé n'est pas statistiquement
+détectable} (balanced-accuracy $79{,}6 \pm 6{,}7\,\%$ contre
+$78{,}3 \pm 1{,}7\,\%$, $p=0{,}44$), et \textbf{la personnalisation FedPer
+dépasse significativement les deux autres conditions}
+($87{,}6 \pm 3{,}8\,\%$, $p<10^{-5}$ dans les deux comparaisons). L'AUC-ROC
+reste dans tous les cas entre $0{,}88$ et $0{,}91$ : aucune des trois
+conditions n'échoue à généraliser sur ce jeu de données. Le scénario du
+nouveau bracelet révèle un résultat plus inattendu : la performance jour~1
+(zéro adaptation) d'un modèle jamais entraîné sur les données d'un sujet est
+\textbf{bimodale selon la graine} (3 des 5 graines testées atteignent
+$97\,\%$ de balanced-accuracy dès le jour~1, 2 s'effondrent à
+$\approx 50\,\%$), un phénomène déjà présent avant toute adaptation. La
+personnalisation locale non régularisée qui suit (SGD standard, sans terme
+proximal ni bruit DP) n'améliore ni ne dégrade la performance de façon
+statistiquement significative en moyenne ($p=0{,}42$), mais peut faire
+chuter substantiellement une graine initialement performante par dérive vers
+une prédiction quasi constante ``stress''.
 
 {\bf Conclusions:}
-Sur un protocole de laboratoire standardisé, quasi-IID entre sujets, le FL
-n'ajoute aucun coût statistiquement mesurable par rapport au centralisé, et la
-personnalisation (FedPer) fait mieux que les deux architectures non
-personnalisées. Ce résultat renforce, par contraste, la lecture du rapport
-principal : ce n'est pas la fédération en tant que telle qui limite la
-généralisation sur le jeu de données infirmières, mais l'hétérogénéité
-clinique réelle propre à ce jeu de données, absente ici par construction du
-protocole.
+Sur un protocole de laboratoire standardisé, l'apprentissage fédéré avec
+confidentialité différentielle n'entraîne aucun coût de performance
+statistiquement mesurable face au centralisé, et une personnalisation légère
+(une seule couche non agrégée) suffit à le dépasser significativement, tout en
+conservant un modèle déployable en 5,32~Ko. Ce résultat positionne le FL
+personnalisé non pas comme un compromis coûteux imposé par la confidentialité,
+mais comme une architecture au moins aussi performante que l'alternative
+centralisée pourtant non conforme aux principes de minimisation des données
+pour ce type de signal.
 \end{abstract}
 
 \received{6 July 2026}
@@ -89,122 +106,147 @@ protocole.
 
 \section{Introduction}
 
-Le rapport principal de ce projet établit un résultat central sur le jeu de
-données infirmières : l'hétérogénéité clinique extrême entre les 15
-participantes limite la généralisation de toute architecture testée,
-centralisée y compris, et le FL n'ajoute qu'un désavantage marginal par-dessus
-cette limite de fond. Une question naturelle en découle : ce coût mesuré,
-faible mais réel, tient-il à la fédération elle-même ou à l'hétérogénéité
-propre à ce jeu de données précis ?
+Un bracelet connecté capable de détecter le stress en temps réel doit
+satisfaire trois contraintes simultanées, rarement réunies dans la
+littérature de détection du stress : (1)~ne jamais faire transiter les
+signaux physiologiques bruts hors de l'appareil, les signaux électrodermaux
+et cardiovasculaires étant des données de santé à caractère personnel ;
+(2)~fournir une garantie de confidentialité formelle et vérifiable, pas
+seulement une architecture qui \emph{semble} préserver la vie privée ;
+(3)~tenir dans l'empreinte mémoire d'un microcontrôleur bas de gamme, pas
+dans celle d'un serveur d'entraînement.
 
-Ce document répond en rejouant le même pipeline sur \textbf{WESAD}
-(\textit{Wearable Stress and Affect Detection}) \cite{schmidt2018wesad}, un
-jeu de données de 15 sujets enregistrés en laboratoire selon un protocole
-identique et contrôlé (baseline, test de stress TSST, amusement, deux phases
-de méditation). Contrairement au recrutement clinique réel des infirmières,
-WESAD est \textbf{quasi-IID entre sujets} par construction : la composition
-de classe (stress~$\approx 22\,\%$) varie de moins de trois points d'un sujet
-à l'autre. C'est précisément ce contraste qui rend la comparaison utile : si
-le coût du FL mesuré sur les infirmières était un artefact générique de la
-fédération, on devrait le retrouver ici ; s'il ne l'est pas, cela confirme
-que l'hétérogénéité clinique, pas le FL, était la variable en cause.
+L'apprentissage fédéré (\textit{Federated
+Learning}, FL)~\cite{mcmahan2017communication} répond structurellement à la
+première contrainte : seuls les paramètres du modèle circulent entre les
+appareils et un serveur d'agrégation, jamais les données brutes. La
+confidentialité différentielle (DP)~\cite{dwork2014foundations}, via
+DP-SGD~\cite{abadi2016deep}, répond à la deuxième en bornant mathématiquement
+ce qu'un attaquant peut inférer sur un individu à partir des paramètres
+transmis. La troisième contrainte guide directement le choix d'architecture :
+un modèle de quelques milliers de paramètres, pas un réseau profond.
 
-Ce travail reste volontairement plus resserré que le rapport principal (une
-seule architecture de personnalisation testée, pas d'ablation FedRep+SCAFFOLD
-ni de scénario nouvel arrivant) : son rôle est celui d'un \textbf{cas de
-contrôle}, pas d'une étude indépendante de même ampleur.
+\paragraph{Positionnement.} La littérature sur WESAD~\cite{schmidt2018wesad}
+évalue très majoritairement des architectures centralisées exploitant
+l'ensemble des capteurs (torse et poignet), sans contrainte de confidentialité
+ni de taille de modèle. Ce travail adopte un angle différent, orienté
+déploiement : seuls les capteurs du poignet sont retenus (le capteur torse
+RespiBAN est un dispositif de recherche, pas un bracelet grand public), le
+modèle est contraint à une taille TinyML, et l'entraînement se fait
+exclusivement en configuration fédérée avec confidentialité différentielle.
+La question posée n'est donc pas ``quelle est la meilleure performance
+atteignable sur WESAD'', mais ``quel est le coût réel, mesuré rigoureusement,
+d'un déploiement fédéré et respectueux de la vie privée sur ce jeu de
+données, et une architecture de personnalisation légère peut-elle réduire ce
+coût''.
 
 \section{Méthodologie}
 \label{sec:method}
 
 \subsection{Jeu de données et restriction aux capteurs du poignet}
 
-WESAD~\cite{schmidt2018wesad} enregistre 15 sujets (S2--S17, S1 et S12
-exclus par les auteurs pour défaillance capteur) via deux dispositifs : un
-capteur torse RespiBAN (ECG, EMG, respiration, EDA, température,
-accélération, 700~Hz) et un bracelet Empatica~E4 au poignet (BVP 64~Hz, EDA
-4~Hz, température 4~Hz, accélération 32~Hz). Le RespiBAN est un appareil de
-recherche, pas un dispositif portable réaliste ; pour rester cohérent avec la
-contrainte TinyML du rapport principal et permettre une comparaison directe,
-\textbf{seuls les signaux du poignet sont retenus}.
+WESAD~\cite{schmidt2018wesad} enregistre 15 sujets (S2--S17 ; S1 et S12
+exclus par les auteurs du jeu de données pour défaillance capteur) selon un
+protocole identique et contrôlé : phase de repos (\textit{baseline}), test de
+stress social standardisé (Trier Social Stress Test, TSST), phase
+d'amusement, puis deux phases de méditation. Deux dispositifs enregistrent en
+parallèle : un capteur torse RespiBAN (ECG, EMG, respiration, activité
+électrodermale, température, accélération, 700~Hz) et un bracelet Empatica~E4
+au poignet (volume sanguin pulsé BVP 64~Hz, activité électrodermale EDA 4~Hz,
+température 4~Hz, accélération 32~Hz).
 
-Les quatre canaux du poignet, à des fréquences d'échantillonnage différentes,
-sont ramenés à une fréquence commune de 4~Hz (celle de l'EDA et de la
-température) par moyennage par blocs non chevauchants (facteur~8 pour
-l'accélération à 32~Hz, facteur~16 pour le BVP à 64~Hz). Le label de protocole
-(échantillonné à 700~Hz sur le flux torse, synchronisé en $t=0$ avec le
-poignet) est ramené à la même fréquence par vote majoritaire par bloc de 175
-échantillons.
+\textbf{Justification du choix des capteurs.} Le capteur torse RespiBAN est
+un dispositif de recherche fixé par sangle, pas un objet porté au quotidien :
+l'inclure produirait un modèle non transférable à un scénario de déploiement
+réel sur bracelet. Seuls les 4 canaux du poignet sont donc retenus. C'est un
+choix délibéré qui \emph{dégrade} probablement la performance atteignable par
+rapport aux publications WESAD exploitant l'ECG du torse (bien plus
+informatif pour la variabilité cardiaque), mais c'est le prix nécessaire pour
+que les résultats restent transférables à un déploiement réel sur bracelet
+poignet.
 
-Le label brut comporte 8 valeurs : 0~=~transitoire, 1~=~baseline,
-2~=~stress, 3~=~amusement, 4~=~méditation, 5/6/7~=~à ignorer (voir la
-documentation du jeu de données). Seules les valeurs 1 à 4 sont conservées
-(comme le fait le protocole officiel), puis binarisées : stress~=~1 (label
-brut~=~2), non-stress~=~0 (labels bruts~1, 3, 4). Ce filtrage a lieu
-\emph{avant} le fenêtrage, ce qui peut introduire des discontinuités
-temporelles à la frontière des segments écartés, exactement comme dans le
-pipeline infirmières.
+\paragraph{Ré-échantillonnage à fréquence commune.} Les 4 canaux du poignet
+étant échantillonnés à des fréquences différentes (32, 64 et 4~Hz), ils sont
+tous ramenés à une fréquence commune de 4~Hz (celle, déjà la plus basse, de
+l'EDA et de la température) par moyennage sur des blocs non chevauchants :
+facteur~8 pour l'accélération ($32/4$), facteur~16 pour le BVP ($64/4$). Le
+label de protocole, fourni à 700~Hz sur le flux torse et synchronisé en
+$t=0$ avec le poignet, est ramené à cette même fréquence de 4~Hz par vote
+majoritaire sur des blocs de 175 échantillons ($700/4$). Ce choix d'une
+fréquence commune plutôt que, par exemple, une architecture multi-branches à
+fréquences hétérogènes, garde le pipeline de featurisation simple et
+directement réutilisable pour un modèle tabulaire à taille fixe, condition
+nécessaire pour un modèle de quelques Ko.
 
-Le fenêtrage glissant est identique à celui du rapport principal : fenêtre de
-60 échantillons (15~s à 4~Hz), pas de 30 (50~\% de recouvrement), 4
-statistiques (moyenne, écart-type, min, max) par canal, sur les 6 canaux
-(accélération~x/y/z, BVP, EDA, température) — soit \textbf{24 features par
-fenêtre}, la même dimensionnalité que le pipeline infirmières. Au total,
-\textbf{5~971 fenêtres} sur les 15 sujets ($\approx 398$ par sujet), un
-ordre de grandeur bien plus petit que les 383~584 fenêtres du jeu de données
-infirmières.
+Le label brut comporte 8 valeurs, documentées dans le jeu de données :
+0~=~transitoire, 1~=~baseline, 2~=~stress (TSST), 3~=~amusement,
+4~=~méditation, 5/6/7~=~conditions additionnelles à ignorer. Seules les
+valeurs 1 à 4 sont conservées (recommandation des auteurs de WESAD), puis
+binarisées : stress~=~1 (label brut~2), non-stress~=~0 (labels bruts~1, 3,
+4). Ce choix binaire correspond à la question cliniquement pertinente pour
+une alerte temps réel sur bracelet (présence de stress, indépendamment de
+son origine), plutôt qu'une classification fine des 4 conditions, qui
+demanderait une architecture de sortie plus large sans bénéfice évident pour
+un cas d'usage d'alerte.
 
-\paragraph{Split temporel et une mono-classe d'origine différente.} Le split
-train/test (80/20, gap de 2 fenêtres) est chronologique par sujet, comme dans
-le rapport principal. Mais ici, \textbf{7 des 15 sujets ont un test-set
-mono-classe} (uniquement non-stress), \emph{non} par hétérogénéité clinique
-entre individus (la composition de classe globale est quasi identique d'un
-sujet à l'autre, Section~\ref{sec:results}), mais parce que le protocole WESAD
-se termine systématiquement par les phases de méditation
-(non-stress) : pour de nombreux sujets, la tranche chronologique finale
-(20~\% des fenêtres utilisables) tombe entièrement dans cette phase de fin de
-protocole. C'est un artefact de \textbf{l'ordre du protocole}, pas de
-\textbf{l'hétérogénéité entre sujets} — une distinction importante détaillée
-en Section~\ref{sec:discussion}. Les 8 sujets au test-set mixte
-(indices 2, 3, 5, 6, 8, 10, 12, 14) sont les seuls porteurs d'un signal
-informatif sur la généralisation du modèle, et toute métrique groupée sur les
-15 sujets est rapportée à côté de la métrique restreinte à ces 8 sujets, selon
-la même discipline que le rapport principal.
+\paragraph{Fenêtrage glissant.} Les séries temporelles à 4~Hz sont converties
+en vecteurs de caractéristiques par fenêtre glissante de 60 échantillons
+(15~s) avec un pas de 30 (7,5~s, 50~\% de recouvrement) :
+\begin{equation}
+  \mathbf{x}_i = \bigl[\,\mu,\, \sigma,\, \min,\, \max\,\bigr]
+  \;\text{calculés sur chaque canal dans la fenêtre}\; i
+  \label{eq:features}
+\end{equation}
+soit $6 \times 4 = 24$ caractéristiques par fenêtre (4 statistiques $\times$
+6 canaux : accélération~x/y/z, BVP, EDA, température).
+\textbf{Justification de la durée de fenêtre} : une réponse
+électrodermale ou cardiovasculaire à un stimulus aigu se manifeste
+typiquement en quelques secondes ; une fenêtre de 15~s est assez courte pour
+capturer cette dynamique phasique tout en produisant un nombre de fenêtres
+raisonnable sur une session d'environ 90~minutes ($\approx 400$ fenêtres par
+sujet après filtrage des labels à ignorer). Le label de chaque fenêtre est
+assigné par vote majoritaire sur les labels bruts qu'elle contient, comme la
+featurisation elle-même.
 
-\subsection{Modèle, FedProx, DP-SGD et FedPer}
+\paragraph{Split temporel et anti-fuite.} Le recouvrement de 50~\% entre
+fenêtres consécutives implique que deux fenêtres voisines partagent la moitié
+de leurs échantillons bruts. Un découpage train/test par permutation
+aléatoire des fenêtres laisserait fuiter une partie du contenu du test vers
+l'entraînement (une fenêtre de test quasi identique à sa voisine
+d'entraînement). Ce travail retient donc, pour chaque sujet, un découpage
+\textbf{chronologique} : les premières 80~\% des fenêtres forment
+l'entraînement, les 20~\% suivantes le test, séparées par un
+\textbf{gap de 2 fenêtres} (60 échantillons à 4~Hz, soit une fenêtre entière)
+qui élimine tout chevauchement possible entre le dernier point
+d'entraînement et le premier point de test.
 
-Le modèle (MLP Tiny, 1~362 paramètres, 5,32~Ko), la stratégie FedProx
-($\mu=0{,}05$), le mécanisme DP-SGD (Opacus~\cite{opacus}, clipping
-$C=1{,}0$, $\delta=10^{-5}$) et l'architecture de personnalisation FedPer
-(extracteur \texttt{fc1}/\texttt{fc2} agrégé, tête \texttt{fc3} jamais
-transmise) sont \textbf{strictement identiques} au rapport principal (voir
-\texttt{rapport\_acc\_nouveau\_.tex}, Sections~2.3 à 2.6, pour le détail des
-formules). Seul le prétraitement des données change.
-
-\subsection{Protocole expérimental}
-
-Simulation Flower~\cite{beutel2020flower}, 15 clients. Grille complète
-$\sigma \in \{0{,}6;\,0{,}8;\,1{,}0;\,1{,}4;\,1{,}8\}$ $\times$ 5 graines (42,
-123, 7, 2024, 31415), 30 rounds, 2 époques locales par round — pour
-\textbf{FedProx+DP} et pour \textbf{FedPer} séparément (50 runs fédérés au
-total), plus une baseline centralisée sur les mêmes 5 graines (standardisation
-globale, pas de FL, pas de DP). L'évaluation FedPer utilise la méthodologie
-corrigée du rapport principal : l'extracteur partagé du checkpoint global final
-est combiné à la tête locale propre à chaque client (pas la copie dérivée de
-l'extracteur que chaque client a localement), pour éviter le biais déjà
-identifié et corrigé dans le rapport principal.
-
-\section{Résultats}
-\label{sec:results}
-
-\subsection{Composition de classe par sujet}
+\paragraph{Une conséquence du choix chronologique : 7 sujets sur 15 ont un
+test-set mono-classe.} Le protocole WESAD se termine systématiquement par les
+deux phases de méditation (non-stress). Pour de nombreux sujets, la tranche
+chronologique finale (les 20~\% de fenêtres retenues pour le test) tombe donc
+entièrement dans cette phase de fin de protocole, produisant un test-set ne
+contenant que la classe non-stress. \textbf{Ce phénomène ne reflète aucune
+hétérogénéité physiologique entre sujets} : la composition de classe globale
+(stress~$\approx 22\,\%$ après filtrage) varie de moins de 3 points d'un
+sujet à l'autre chez les 8 sujets au test-set mixte
+(Tableau~\ref{tab:class_composition}), un jeu de données bien plus homogène
+entre participants que ne le serait une collecte en conditions réelles non
+contrôlées. C'est un \textbf{artefact de l'ordre du protocole
+expérimental croisé avec un split chronologique}, pas un signal
+d'hétérogénéité clinique à interpréter. Sur les 15 sujets (7 mono-classe
+non-stress, 8 au test-set mixte), seuls ces 8 sujets mixtes (indices 2, 3, 5,
+6, 8, 10, 12, 14) portent un signal informatif sur la capacité de
+généralisation du modèle : une prédiction constante ``non-stress''
+obtiendrait mécaniquement $100\,\%$ d'accuracy sur les 7 autres,
+indépendamment de la qualité du modèle. Chaque résultat de ce
+document rapporte donc systématiquement la métrique groupée sur les 15 sujets
+\emph{et} la métrique restreinte à ces 8 sujets informatifs.
 
 \begin{table}[h!]
   \centering
   \small
-  \caption{Composition du test-set par sujet (proportion de stress). 7/15
-  sujets sont mono-classe (0~\% stress), par construction chronologique du
-  protocole (Section~\ref{sec:method}), pas par hétérogénéité clinique.}
+  \caption{Composition du test-set par sujet (proportion de fenêtres
+  stress). 7 sujets sur 15 sont mono-classe (0~\% stress).}
   \label{tab:class_composition}
   \begin{tabular}{cccc}
     \toprule
@@ -222,12 +264,205 @@ identifié et corrigé dans le rapport principal.
   \end{tabular}
 \end{table}
 
-Chez les 8 sujets au test-set mixte, la proportion de stress varie de
-$32{,}5\,\%$ à $34{,}6\,\%$ : un écart de moins de 3 points, à comparer aux
-dizaines de points d'écart mesurés entre clients du jeu de données infirmières.
-C'est la confirmation empirique que WESAD est bien un cas quasi-IID.
+Au total, le jeu de données comprend \textbf{5~971 fenêtres} sur les 15
+sujets ($\approx 398$ par sujet), un ordre de grandeur nettement plus petit
+que les jeux de données de détection de stress en conditions réelles
+(sessions de plusieurs heures par participant), une conséquence directe de
+la durée fixe et courte ($\approx 90$~min) du protocole de laboratoire WESAD.
 
-\subsection{FedProx+DP, FedPer et centralisé : pas d'effondrement}
+\subsection{Architecture du modèle : MLP Tiny}
+\label{subsec:model}
+
+Le modèle retenu est un perceptron multicouche minimaliste, à trois couches
+entièrement connectées :
+\begin{equation}
+  \text{Lin\'eaire}(24 \to 32) \xrightarrow{\text{ReLU}}
+  \text{Lin\'eaire}(32 \to 16) \xrightarrow{\text{ReLU}}
+  \text{Lin\'eaire}(16 \to 2)
+  \label{eq:mlp}
+\end{equation}
+soit $(24{\times}32{+}32) + (32{\times}16{+}16) + (16{\times}2{+}2) =
+\mathbf{1\,362}$ paramètres, une empreinte mémoire de $1\,362 \times 4 =
+5\,448$ octets $= \mathbf{5{,}32}$~Ko en précision flottante 32 bits (FP32).
+
+\textbf{Justification du choix d'un MLP plutôt qu'un CNN ou un RNN.} L'entrée
+du modèle est un vecteur de 24 statistiques déjà agrégées temporellement
+(moyenne, écart-type, min, max sur une fenêtre de 15~s) : il n'y a ni
+structure spatiale à exploiter (contrairement à une image, où un CNN
+exploiterait la localité des pixels), ni dépendance temporelle
+\emph{résiduelle} à modéliser au sein du vecteur d'entrée lui-même (la
+dépendance temporelle du signal brut a déjà été résumée par les 4
+statistiques). Un CNN 1D ou un RNN (LSTM/GRU) opérant directement sur les
+signaux bruts pourrait en théorie capturer des motifs plus fins, mais
+introduirait un nombre de paramètres et un coût de calcul incompatibles avec
+la contrainte d'un microcontrôleur bas de gamme, pour un gain de performance
+non garanti sur une tâche déjà relativement bien résolue par les statistiques
+de fenêtre (Section~\ref{sec:results}). Le choix du MLP est donc dicté par la
+contrainte de déploiement (TinyML), pas par une limite de l'espace
+d'hypothèses jugée acceptable a priori.
+
+\subsection{FedProx : agrégation robuste à l'hétérogénéité}
+\label{subsec:fedprox}
+
+À chaque round de communication $t$, le serveur diffuse les poids globaux
+courants $\mathbf{w}^{(t)}$ à l'ensemble des clients. Chaque client $k$
+effectue $E$ époques d'entraînement local, puis renvoie ses poids mis à jour
+$\mathbf{w}_k^{(t+1)}$. Le serveur agrège ces contributions par une moyenne
+pondérée par la taille de partition locale (\textit{FedAvg}) :
+\begin{equation}
+  \mathbf{w}^{(t+1)} = \sum_{k=1}^{K} \frac{|\mathcal{D}_k|}{\sum_j |\mathcal{D}_j|}
+  \, \mathbf{w}_k^{(t+1)}
+  \label{eq:fedavg}
+\end{equation}
+En distribution Non-IID, les fonctions de perte locales divergent au fil des
+époques locales, provoquant une dérive des poids (\textit{client drift}) qui
+peut empêcher FedAvg de converger. FedProx~\cite{li2020fedprox} corrige cette
+dérive en ajoutant un terme proximal à l'objectif local de chaque client :
+\begin{equation}
+  \min_{\mathbf{w}} \left\{ F_k(\mathbf{w}) + \frac{\mu}{2}
+  \| \mathbf{w} - \mathbf{w}^{(t)}_{\text{global}} \|^2 \right\}
+  \label{eq:fedprox_form}
+\end{equation}
+où $\mu = 0{,}05$, une valeur dans la plage $0{,}01$--$0{,}1$ couramment
+recommandée par la littérature FedProx pour des données Non-IID
+\cite{li2020fedprox} : un $\mu$ trop faible ramène aux instabilités de
+FedAvg, un $\mu$ trop élevé étouffe l'adaptation locale. Cette valeur n'a
+pas été ré-optimisée spécifiquement pour WESAD par une grille dédiée, une
+limite explicitée en Section~\ref{sec:limits}.
+
+\textbf{Justification de FedProx plutôt que FedAvg, FedBN ou SCAFFOLD.}
+FedAvg seul (sans terme proximal) n'offre aucune garantie de convergence sous
+hétérogénéité forte. FedBN exclurait les couches de normalisation par
+lot de l'agrégation, mais le MLP Tiny n'en contient aucune : FedBN s'y
+réduirait à FedAvg. SCAFFOLD~\cite{karimireddy2020scaffold} nécessite de transmettre, en plus des poids, une
+variable de contrôle par client, doublant le volume de communication par
+round ; ce coût est injustifié ici puisque la correction de dérive
+recherchée est déjà obtenue par le terme proximal de FedProx à coût de
+communication inchangé. FedProx offre ainsi le meilleur compromis
+correction-de-dérive / coût-de-communication pour ce cas d'usage.
+
+\subsection{Confidentialité différentielle : DP-SGD}
+\label{subsec:dp}
+
+Un mécanisme $\mathcal{M}$ est $(\varepsilon, \delta)$-différentiellement
+privé~\cite{dwork2014foundations} si, pour tout ensemble de résultats $S$ et
+toute paire de jeux de données adjacents $\mathcal{D}$, $\mathcal{D}'$
+(différant d'un seul exemple) :
+\begin{equation}
+  \Pr[\mathcal{M}(\mathcal{D}) \in S] \;\leq\; e^\varepsilon \cdot
+  \Pr[\mathcal{M}(\mathcal{D}') \in S] + \delta
+  \label{eq:dp_form}
+\end{equation}
+$\varepsilon$ borne la perte de confidentialité (plus petit est plus
+protecteur), $\delta$ est la probabilité résiduelle que cette borne soit
+violée. DP-SGD~\cite{abadi2016deep}, implémenté via
+Opacus~\cite{opacus}, applique à chaque étape de gradient :
+\begin{enumerate}
+  \item \textbf{Clipping par exemple} à une norme $\ell_2$ maximale $C=1{,}0$ :
+  $\tilde{g}_i = g_i \cdot \min\!\left(1,\, C / \|g_i\|_2\right)$, qui borne
+  la contribution de tout exemple individuel au gradient agrégé.
+  \item \textbf{Bruit gaussien calibré} :
+  $\hat{g} = \frac{1}{B}\!\left(\sum_{i=1}^B \tilde{g}_i +
+  \mathcal{N}\!\left(0,\, \sigma^2 C^2 \mathbf{I}\right)\right)$,
+  où $\sigma$ (le multiplicateur de bruit) contrôle directement le compromis
+  entre protection et utilité.
+\end{enumerate}
+Le budget cumulé $\varepsilon$ est suivi round après round via l'accountant
+PRV (\textit{Privacy Random Variable}) d'Opacus, pour un $\delta$ fixé à
+$10^{-5}$.
+
+\textbf{Justification du choix de DP-SGD plutôt que du chiffrement homomorphe
+ou de l'agrégation sécurisée.} Le chiffrement homomorphe et l'agrégation
+sécurisée protègent la confidentialité des mises à jour \emph{pendant leur
+transmission} (un attaquant interceptant le canal n'apprend rien), mais
+n'empêchent pas un serveur honnête-mais-curieux de reconstruire des
+informations sur les données d'un client à partir de son modèle final agrégé
+(attaques par inversion de gradient). DP-SGD, en revanche, apporte une
+garantie mathématique sur ce que le modèle \emph{final} peut révéler,
+complémentaire et non substituable par un simple chiffrement du canal, tout
+en restant compatible avec un entraînement SGD standard sans infrastructure
+cryptographique additionnelle, un critère important pour un déploiement sur
+microcontrôleur aux ressources de calcul limitées.
+
+\textbf{Choix de la grille de $\sigma$.} Cinq valeurs
+($\sigma \in \{0{,}6;\,0{,}8;\,1{,}0;\,1{,}4;\,1{,}8\}$) sont testées pour
+couvrir la zone de transition entre bruit fort ($\varepsilon$ élevé à
+$\sigma=0{,}6$) et bruit faible ($\varepsilon$ réduit à $\sigma=1{,}8$),
+plutôt qu'une seule valeur arbitraire, afin de pouvoir caractériser
+empiriquement le compromis confidentialité/utilité (Section~\ref{sec:results})
+au lieu de le supposer.
+
+\subsection{FedPer : personnalisation par tête de classification locale}
+\label{subsec:fedper}
+
+FedPer~\cite{arivazhagan2019federated} modifie l'agrégation en excluant la
+dernière couche du modèle (\texttt{fc3}, la couche de classification, 34
+paramètres) de la transmission et de l'agrégation : elle reste locale à
+chaque client, entraînée en continu sur ses propres données pendant les 30
+rounds, tandis que l'extracteur de caractéristiques (\texttt{fc1},
+\texttt{fc2}) continue d'être agrégé globalement comme sous FedProx.
+
+\textbf{Justification de FedPer plutôt que Ditto ou une tête
+multi-couches.} Ditto entraînerait un second réseau complet par
+client, régularisé vers le modèle global par un terme proximal :
+cela double la mémoire et le calcul par client pour un gain de
+personnalisation qui reste à démontrer sur ce jeu de données précis. FedPer
+ne modifie qu'un seul réseau et ne nécessite qu'un filtre sur les clés du
+dictionnaire de poids transmis (les clés \texttt{fc3.*} sont retirées avant
+envoi et jamais réintégrées depuis le serveur), un coût d'implémentation et
+de calcul minimal. Une tête multi-couches personnalisée (comme dans
+certaines variantes FedRep) pourrait capturer une personnalisation plus
+riche, mais au prix d'une tête plus grande à entraîner sur un jeu de données
+local déjà petit ($\approx 320$ fenêtres d'entraînement par sujet,
+Section~\ref{sec:method}) : le risque de sur-apprentissage sur une tête plus
+grande motive le choix, ici, d'une tête à une seule couche linéaire.
+
+\paragraph{Méthodologie d'évaluation.} FedPer ne produit aucun modèle global
+unique évaluable seul (le checkpoint serveur final ne contient que
+l'extracteur, jamais de tête). Chaque fenêtre de test est donc scorée par le
+modèle propre au sujet dont elle provient (extracteur partagé du checkpoint
+serveur final + tête locale propre à ce sujet), puis les prédictions de tous
+les sujets sont regroupées pour les métriques globales. C'est la seule
+évaluation cohérente avec l'architecture, et la plus représentative d'un
+déploiement réel où chaque bracelet exécute de toute façon son propre
+modèle.
+
+\subsection{Protocole expérimental}
+\label{subsec:protocol}
+
+Simulation via le framework Flower~\cite{beutel2020flower}, 15 clients
+simulés séquentiellement sur un seul nœud de calcul.
+
+\textbf{Justification du choix de Flower.} Flower sépare explicitement la
+logique d'agrégation côté serveur (\texttt{ServerApp}, la stratégie FedProx)
+de la logique d'entraînement côté client (\texttt{ClientApp}), ce qui permet
+de faire varier la stratégie de personnalisation (FedProx seul, puis FedPer)
+sans dupliquer le code de simulation, de communication ou de journalisation.
+C'est un framework open source largement adopté pour la recherche en FL, ce
+qui facilite la reproductibilité de ce travail par un tiers.
+
+Grille complète $\sigma \in \{0{,}6;\,0{,}8;\,1{,}0;\,1{,}4;\,1{,}8\}$
+$\times$ 5 graines indépendantes (42, 123, 7, 2024, 31415, des valeurs
+arbitraires choisies uniquement pour leur diversité, sans signification
+particulière), 30 rounds de communication, 2 époques locales par round,
+taille de batch 64, taux d'apprentissage 0,01, momentum SGD 0,9, pour
+\textbf{FedProx+DP} et pour \textbf{FedPer} séparément (50 runs fédérés au
+total), plus une baseline centralisée (même modèle, même 5 graines,
+standardisation globale, sans FL ni DP) servant de plafond de référence
+théorique.
+
+\textbf{Pourquoi répéter chaque configuration sur 5 graines.} DP-SGD injecte
+du bruit gaussien à chaque étape de gradient, une source de variabilité
+non négligeable même à données et hyperparamètres identiques. Rapporter une
+moyenne et un écart-type sur 5 graines indépendantes, plutôt qu'un run
+unique, permet de vérifier que les conclusions ne dépendent pas d'une
+initialisation aléatoire particulière, et de conduire des tests statistiques
+de comparaison entre conditions (Section~\ref{sec:results}).
+
+\section{Résultats}
+\label{sec:results}
+
+\subsection{FedProx+DP, FedPer et centralisé}
 
 \begin{table}[h!]
   \centering
@@ -250,45 +485,43 @@ C'est la confirmation empirique que WESAD est bien un cas quasi-IID.
   \end{tabular}
 \end{table}
 
-\textbf{Aucune des trois conditions ne s'effondre} sur les sujets mixtes :
-l'AUC-ROC reste dans tous les cas entre $0{,}88$ et $0{,}91$, loin du
-$0{,}267$ mesuré sur les clients difficiles du jeu de données infirmières. La
-balanced-accuracy groupée sur les 15 sujets est gonflée par les 7 sujets
-mono-classe dans les trois conditions (de 6 à 8 points selon la condition),
-le même phénomène de distorsion déjà documenté dans le rapport principal, mais
-sans jamais renverser le signe de la conclusion : les modèles généralisent
-réellement sur ce jeu de données, contrairement au cas infirmières.
+Aucune des trois conditions ne s'effondre sur les sujets mixtes : l'AUC-ROC
+reste dans tous les cas entre $0{,}88$ et $0{,}91$, largement au-dessus du
+niveau du hasard ($0{,}5$). La balanced-accuracy groupée sur les 15 sujets est
+gonflée de 6 à 8 points par les 7 sujets mono-classe (Section~\ref{sec:method}),
+mais sans jamais renverser le sens de la conclusion.
 
-\paragraph{Tests statistiques (sujets mixtes, Welch et Cohen's~$d$).}
+\paragraph{Tests statistiques (sujets mixtes, Welch et Cohen's $d$).}
 \begin{itemize}
   \item \textbf{Centralisé vs FedProx+DP : pas de différence significative}
   (balanced-accuracy $t=-0{,}79$, $p=0{,}44$, $d=-0{,}25$ ; AUC $t=-0{,}42$,
-  $p=0{,}70$, $d=-0{,}26$). Contrairement au jeu de données infirmières, la
-  fédération et la confidentialité différentielle n'ajoutent ici
-  \textbf{aucun coût statistiquement détectable}.
+  $p=0{,}70$, $d=-0{,}26$, effets petits dans les deux cas). Le FL et la
+  confidentialité différentielle n'ajoutent ici \textbf{aucun coût
+  statistiquement détectable} par rapport à l'entraînement centralisé non
+  contraint.
   \item \textbf{FedPer vs FedProx+DP : différence significative et large}
   (balanced-accuracy $t=5{,}08$, $p=1{,}0\times10^{-5}$, $d=1{,}44$ ; AUC
-  $t=4{,}79$, $p=4{,}8\times10^{-5}$, $d=1{,}36$). La personnalisation aide
-  nettement, comme dans le rapport principal.
+  $t=4{,}79$, $p=4{,}8\times10^{-5}$, $d=1{,}36$).
   \item \textbf{FedPer vs Centralisé : différence significative sur la
   balanced-accuracy} ($t=8{,}01$, $p=3{,}6\times10^{-6}$, $d=3{,}02$, effet
   très large), \textbf{mais pas sur l'AUC} ($t=1{,}81$, $p=0{,}13$,
-  $d=1{,}00$) — l'effectif réduit du centralisé ($n=5$) limite la puissance
-  statistique sur cette métrique précise ; le signe de l'effet reste
-  cohérent dans les deux cas (FedPer au-dessus).
+  $d=1{,}00$, effet large mais non significatif) : l'effectif réduit du
+  centralisé ($n=5$) limite la puissance statistique sur cette métrique
+  précise, bien que le sens de l'effet (FedPer au-dessus) reste cohérent
+  dans les deux cas.
 \end{itemize}
 
-\paragraph{Le même piège de la métrique groupée, dans l'autre sens.} Sur la
-métrique \emph{groupée} (15 sujets), Centralisé vs FedProx+DP est
-significatif ($t=-6{,}48$, $p=2{,}4\times10^{-6}$), mais dans le sens opposé
-à ce que l'intuition attendrait : FedProx+DP y paraît \emph{meilleur} que le
-centralisé. Restreint aux 8 sujets mixtes, cet écart disparaît complètement
-($p=0{,}44$). C'est le même mécanisme de distorsion déjà identifié dans le
-rapport principal (les sujets mono-classe dominent la métrique groupée), ici
-manifesté dans la direction opposée : une confirmation supplémentaire qu'il
-ne faut jamais lire une métrique groupée sur des clients mono-classe sans la
-croiser avec la métrique restreinte aux clients informatifs, quel que soit le
-sens apparent de l'écart.
+\paragraph{La métrique groupée peut inverser le signe de la comparaison.}
+Sur la métrique \emph{groupée} (15 sujets), Centralisé vs FedProx+DP est
+statistiquement significatif ($t=-6{,}48$, $p=2{,}4\times10^{-6}$), mais dans
+le sens où FedProx+DP paraît \emph{meilleur} que le centralisé. Restreint aux
+8 sujets mixtes, cet écart disparaît complètement ($p=0{,}44$). Les 7 sujets
+mono-classe, en écrasant tout écart réel entre conditions sous un score
+mécanique de $100\,\%$, peuvent artificiellement créer \emph{ou} artificiellement
+masquer un écart selon le biais de classe de chaque modèle : c'est une raison
+supplémentaire de toujours croiser une métrique groupée sur des clients
+mono-classe avec la métrique restreinte aux clients informatifs, quel que
+soit le sens apparent de l'écart mesuré.
 
 \subsection{Budget de confidentialité}
 
@@ -311,115 +544,238 @@ sens apparent de l'écart.
   \end{tabular}
 \end{table}
 
-À $\sigma$ égal, $\varepsilon$ est ici \textbf{nettement plus élevé} que sur le
-jeu de données infirmières (par exemple $5{,}11$ contre $0{,}54$ à
-$\sigma=1{,}8$). Ceci ne traduit pas une confidentialité moins bien
-implémentée, mais la taille bien plus petite du jeu d'entraînement local par
-client ($\approx 320$ fenêtres contre $\approx 20\,000$ chez les infirmières) :
-à nombre d'époques et taille de batch égaux, le ratio d'échantillonnage par
-batch est mécaniquement plus élevé, ce qui accroît le budget de
-confidentialité consommé par round pour un même $\sigma$. Un $\sigma$ plus
-élevé serait nécessaire ici pour viser le même $\varepsilon$ cible que le
-rapport principal.
+À $\sigma$ égal, $\varepsilon$ atteint ici des valeurs bien plus élevées que
+ce qu'on obtiendrait sur un jeu de données comportant des dizaines de
+milliers de fenêtres d'entraînement par client. Ceci ne traduit pas un
+défaut d'implémentation : à nombre d'époques et taille de batch identiques,
+un jeu d'entraînement local plus petit ($\approx 320$ fenêtres par sujet)
+augmente mécaniquement le ratio d'échantillonnage par batch, ce qui accroît
+le budget de confidentialité consommé par round pour un même $\sigma$. Un
+$\sigma$ plus élevé serait nécessaire ici pour viser un $\varepsilon$
+cible de l'ordre de l'unité, une piste non explorée dans cette grille
+(Section~\ref{sec:limits}).
 
 \subsection{Coût de communication}
 
-Le modèle FedProx+DP transmet 5,32~Ko par round (identique au rapport
-principal, même architecture). FedPer transmet 5,19~Ko (la tête
-\texttt{fc3}, 34 paramètres, n'étant jamais transmise), un gain de
-communication de $-2{,}5\,\%$, identique en proportion à celui mesuré sur le
-jeu de données infirmières.
+Le modèle FedProx+DP transmet 5,32~Ko par round. FedPer transmet 5,19~Ko (la
+tête \texttt{fc3}, 34 paramètres sur 1~362, n'étant jamais transmise), un
+gain de communication de $-2{,}5\,\%$, modeste mécaniquement puisque la
+tête ne représente qu'une fraction marginale d'une architecture déjà
+minuscule.
+
+\subsection{Scénario du nouveau bracelet}
+\label{subsec:new_joiner}
+
+Un déploiement réel implique qu'un nouveau bracelet rejoigne le système après
+que le modèle global a déjà été entraîné sur les autres utilisateurs, sans
+jamais avoir contribué lui-même. Pour simuler ce scénario, le sujet~2 (S4,
+test-set mixte, $32{,}5\,\%$ de stress) est totalement exclu de
+l'entraînement fédéré (sa contribution est neutralisée dans l'agrégation
+FedProx via un poids nul, \texttt{num-examples}$=0$) : le modèle global final
+n'a donc jamais vu ses données. Ce modèle est évalué directement sur les
+données du sujet~2 (``jour~1'', zéro adaptation), puis affiné localement par
+SGD standard (sans DP ni terme proximal, un entraînement purement local
+post-déploiement) pendant 8 époques, avec une évaluation \textbf{après chaque
+époque} pour observer la trajectoire d'adaptation, pas seulement un point
+d'arrivée.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Sujet~2 exclu de l'entraînement, trajectoire de l'adaptation
+  locale par SGD standard (moyenne $\pm$ écart-type sur 5 graines).}
+  \label{tab:new_joiner}
+  \begin{tabular}{cccc}
+    \toprule
+    Époque & Balanced-accuracy & AUC-ROC & Rappel non-stress / stress \\
+    \midrule
+    0 (jour 1) & $78{,}6 \pm 22{,}6\,\%$ & $0{,}9657 \pm 0{,}0290$ & $58{,}9\,\%$ / $98{,}4\,\%$ \\
+    2          & $78{,}6 \pm 22{,}6\,\%$ & $0{,}9648 \pm 0{,}0215$ & $58{,}9\,\%$ / $98{,}4\,\%$ \\
+    4          & $77{,}7 \pm 20{,}3\,\%$ & $0{,}9695 \pm 0{,}0098$ & $56{,}9\,\%$ / $98{,}4\,\%$ \\
+    6          & $74{,}6 \pm 20{,}2\,\%$ & $0{,}9723 \pm 0{,}0101$ & $50{,}8\,\%$ / $98{,}4\,\%$ \\
+    8          & $71{,}7 \pm 21{,}3\,\%$ & $0{,}9722 \pm 0{,}0100$ & $45{,}0\,\%$ / $98{,}4\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Résultat principal : une forte variance de la performance jour~1
+selon la graine, que le fine-tuning ne corrige pas de façon fiable.} Le
+détail par graine (Tableau~\ref{tab:new_joiner_per_seed}) révèle un
+comportement bimodal, déjà présent \emph{avant} toute adaptation locale :
+les graines 7, 31415 et 42 atteignent $97{,}0$--$97{,}1\,\%$ de
+balanced-accuracy dès le jour~1, tandis que les graines 123 et 2024
+s'effondrent à $50{,}0$--$51{,}9\,\%$ (le modèle global prédit déjà
+systématiquement ``stress'' sur les données du sujet~2, avant même toute
+adaptation locale). Cette bimodalité est une propriété de l'entraînement
+fédéré lui-même (elle dépend de la graine d'initialisation et de mélange des
+données, pas du fine-tuning), pas un artefact de l'adaptation qui suit.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Détail par graine : balanced-accuracy jour~1 contre après 8
+  époques de fine-tuning local.}
+  \label{tab:new_joiner_per_seed}
+  \begin{tabular}{ccc}
+    \toprule
+    Graine & Jour~1 & Après 8 époques \\
+    \midrule
+    42    & $97{,}1\,\%$ & $59{,}6\,\%$ \\
+    123   & $50{,}0\,\%$ & $51{,}9\,\%$ \\
+    7     & $97{,}0\,\%$ & $98{,}0\,\%$ \\
+    2024  & $51{,}9\,\%$ & $51{,}9\,\%$ \\
+    31415 & $97{,}0\,\%$ & $97{,}0\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Le fine-tuning local (SGD standard, sans terme proximal ni bruit DP, donc
+sans aucune régularisation ramenant vers le modèle global) n'améliore ni ne
+dégrade la performance de façon statistiquement significative en moyenne
+(test $t$ apparié jour-1-vs-après-8-époques sur les 5 graines, $t=0{,}91$,
+$p=0{,}42$ ; test de Wilcoxon apparié, $p=1{,}00$) : la baisse moyenne
+observée dans le Tableau~\ref{tab:new_joiner} ($78{,}6\,\%$ à $71{,}7\,\%$)
+est tirée presque entièrement par une seule graine (42, qui chute de
+$97{,}1\,\%$ à $59{,}6\,\%$), pas par un effet systématique du fine-tuning.
+Pour les 4 autres graines, la performance reste quasiment inchangée après 8
+époques (variations de moins de 2 points, à l'exception d'une légère
+amélioration pour la graine~7). L'AUC-ROC reste stable et élevé
+($\approx 0{,}96$--$0{,}97$) sur l'ensemble de la trajectoire, y compris
+pour la graine~42 dont la balanced-accuracy chute : le modèle continue de
+bien \emph{classer} les fenêtres par probabilité prédite, mais son seuil de
+décision par défaut ($0{,}5$) devient inadapté pour cette graine précise à
+mesure que l'entraînement local, non régularisé, déplace la distribution des
+probabilités prédites vers une prédiction quasi constante ``stress''
+(rappel stress $100\,\%$, rappel non-stress en chute).
+
+\textbf{Limite à garder à l'esprit} : ce résultat repose sur un seul sujet
+exclu (le sujet~2). C'est un cas illustratif, pas un résultat généralisable
+aux 15 sujets ; en particulier, la bimodalité observée jour~1 pourrait être
+propre à ce sujet et ne pas se retrouver avec un autre sujet exclu.
 
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Ce que confirme ce cas de contrôle}
+\subsection{Pourquoi le FL ne coûte rien ici}
 
-Le rapport principal concluait que l'hétérogénéité clinique extrême entre
-infirmières, pas la fédération elle-même, expliquait l'essentiel de l'écart
-mesuré avec le centralisé. Ce cas de contrôle sur WESAD apporte une preuve
-empirique directe de cette lecture : sur un protocole de laboratoire
-standardisé et quasi-IID, \textbf{l'écart FL-vs-centralisé disparaît
-statistiquement} (Section~\ref{sec:results}), alors que le pipeline, le
-modèle et les mécanismes de confidentialité sont rigoureusement identiques.
-Si le coût mesuré sur les infirmières provenait d'une limite générique du FL
-ou de DP-SGD, on s'attendrait à retrouver un coût comparable ici ; ce n'est
-pas le cas.
+Le résultat central de ce travail, l'absence de coût statistiquement
+détectable du FL par rapport au centralisé, s'explique par la nature du
+protocole WESAD lui-même : un protocole de laboratoire standardisé et
+identique pour tous les sujets produit une distribution de données
+\textbf{quasi-IID} entre clients (Tableau~\ref{tab:class_composition}, écart
+de moins de 3 points de composition de classe entre les 8 sujets
+informatifs). Or c'est précisément l'hétérogénéité Non-IID entre clients,
+pas la fédération en tant que mécanisme, qui dégrade typiquement la
+convergence d'un système fédéré : FedProx existe justement pour corriger
+cette dérive quand elle survient (Section~\ref{subsec:fedprox}). Quand
+l'hétérogénéité entre clients est faible, ce mécanisme de correction n'a
+simplement rien à corriger, et le modèle fédéré converge vers une solution
+proche de ce qu'obtiendrait un entraînement centralisé sur les mêmes données.
 
-\subsection{FedPer dépasse le centralisé : une différence de mécanisme, pas
-seulement de degré}
+\subsection{Pourquoi la personnalisation dépasse le centralisé}
 
-Sur le jeu de données infirmières, la personnalisation (FedPer,
-FedRep+SCAFFOLD) réduisait l'écart avec le centralisé sans jamais le faire
-disparaître ni le dépasser. Ici, \textbf{FedPer dépasse significativement le
-centralisé} sur la balanced-accuracy ($87{,}63\,\%$ contre $78{,}33\,\%$,
-$p=3{,}6\times10^{-6}$). Une explication plausible : même sur un protocole
-standardisé, chaque individu a sa propre ligne de base physiologique (BVP,
-EDA, température au repos varient d'une personne à l'autre) ; un modèle
-centralisé unique doit trouver un compromis global, alors qu'une tête de
-classification propre à chaque sujet peut absorber cette variabilité
-individuelle sans que l'extracteur partagé n'ait besoin de la capturer. Ce
-mécanisme de personnalisation profite ici pleinement de la petite taille du
-jeu de données locale (peu de risque de sous-apprentissage sur 34 paramètres
-ajustés par sujet), un résultat cohérent avec le constat déjà fait dans le
-rapport principal que la personnalisation \emph{de la tête seule} est le
-facteur dominant, pas la durée d'entraînement.
+Un modèle centralisé, même entraîné sur l'ensemble des données, doit trouver
+un compromis unique valable pour tous les sujets. Or chaque individu a sa
+propre ligne de base physiologique : une activité électrodermale de repos,
+une fréquence de pouls basale et une température cutanée qui varient d'une
+personne à l'autre indépendamment de tout stress. FedPer permet à la couche
+de classification finale de s'adapter à cette ligne de base individuelle
+sans que l'extracteur partagé n'ait besoin de la capturer, un degré de
+liberté que le centralisé n'offre pas. Ce mécanisme profite pleinement de la
+petite taille de la tête personnalisée (34 paramètres) au regard du volume de
+données locales disponibles par sujet, limitant le risque de sur-apprentissage
+qui affecterait une tête plus grande ou un réseau personnalisé dans son
+ensemble.
 
-\subsection{La mono-classe d'origine chronologique n'est pas la mono-classe
-d'origine clinique}
+\subsection{Le scénario du nouveau bracelet : une généralisation zéro-shot
+bimodale, un fine-tuning non régularisé au bénéfice non garanti}
 
-Il est important de ne pas confondre les deux phénomènes de mono-classe
-rencontrés dans ce projet. Chez les infirmières, la mono-classe résultait
-d'une \textbf{hétérogénéité réelle entre individus} (certaines infirmières
-n'ont simplement jamais connu d'épisode de stress ou de repos pendant leur
-session). Ici, elle résulte d'un \textbf{artefact de l'ordre du protocole}
-(le déroulé expérimental se termine systématiquement par des phases de
-non-stress) : rien n'indique que ces 7 sujets soient physiologiquement
-atypiques, seule la position chronologique de leur test-set dans le protocole
-diffère. La distinction compte pour l'interprétation : sur WESAD, un split
-non chronologique (par exemple stratifié) aurait probablement éliminé ce
-phénomène presque entièrement, ce qui n'aurait pas été le cas pour les
-infirmières où l'hétérogénéité est structurelle au jeu de données, pas un
-artefact du protocole de split.
+Le résultat du scénario nouveau bracelet éclaire deux aspects distincts,
+qu'il convient de ne pas confondre. Premièrement, la généralisation
+``zéro-shot'' du modèle global à un sujet jamais vu est \textbf{bimodale
+selon la graine} (Section~\ref{subsec:new_joiner}) : pour certaines
+initialisations, le modèle agrégé généralise déjà très bien au nouveau
+sujet ($\approx 97\,\%$) ; pour d'autres, il s'effondre en une prédiction
+quasi constante avant même toute adaptation. C'est une propriété de
+l'entraînement fédéré lui-même (sensibilité à la graine), pas du fine-tuning
+qui suit. Deuxièmement, le fine-tuning post-hoc testé ici n'a
+\emph{aucun} des garde-fous dont bénéficie FedPer pendant l'entraînement
+fédéré (le terme proximal de FedProx et le bruit DP-SGD agissant comme
+régularisation implicite sur l'extracteur partagé, Section~\ref{subsec:fedper}) :
+c'est un entraînement purement local, sans ancrage au modèle global, sur un
+jeu de données minuscule ($\approx 316$ fenêtres). Statistiquement, ce
+fine-tuning non régularisé n'apporte ni gain ni perte fiable en moyenne sur
+les 5 graines testées, mais peut faire chuter substantiellement une graine
+initialement bien calibrée (Tableau~\ref{tab:new_joiner_per_seed}, graine~42).
+Ceci suggère qu'un fine-tuning local, pour être utilisé sans risque en
+pratique, gagnerait à intégrer un garde-fou explicite (terme proximal ancré
+au modèle global, ou arrêt anticipé sur un jeu de validation dédié), plutôt
+que d'être laissé courir un nombre d'époques fixe sans surveillance.
 
 \section{Limites et travaux futurs}
 \label{sec:limits}
 
 \begin{itemize}
-  \item \textbf{Portée de ce cas de contrôle.} Ce document teste une seule
-  architecture de personnalisation (FedPer) sur un seul jeu de données de
-  contrôle. Il ne prétend pas à l'exhaustivité du rapport principal (pas
-  d'ablation FedRep+SCAFFOLD, pas de scénario nouvel arrivant, pas de
-  décomposition fédération-vs-confidentialité par une grille FedProx sans
-  DP-SGD dédiée).
-  \item \textbf{Quantification INT8 non mesurée.} Contrairement au rapport
-  principal, cette étude ne mesure pas l'erreur de quantification dynamique
-  INT8 ; seule la précision FP32 est rapportée ici.
-  \item \textbf{Split chronologique et mono-classe protocolaire.} Comme
-  discuté en Section~\ref{sec:discussion}, 7 des 15 sujets ont un test-set
-  mono-classe pour une raison propre au protocole WESAD, pas au jeu de
-  données infirmières. Un split alternatif (stratifié plutôt que
-  chronologique) permettrait de vérifier que les conclusions ne dépendent
-  pas de ce choix de split, mais introduirait alors un risque de fuite entre
-  fenêtres chevauchantes (Section~\ref{sec:method}) qu'il faudrait traiter
-  spécifiquement.
-  \item \textbf{Restriction aux capteurs du poignet.} Le RespiBAN (torse) a
-  été volontairement écarté pour la contrainte TinyML ; les résultats ne
-  sont donc pas directement comparables aux publications WESAD originales
-  qui exploitent l'ECG et la respiration du torse.
-  \item \textbf{Effectif centralisé réduit ($n=5$).} Comme dans le rapport
-  principal, certaines comparaisons impliquant le centralisé (5 graines
-  seulement) ont une puissance statistique plus faible que les comparaisons
-  FL-vs-FL (25 valeurs) ; le cas de l'AUC FedPer-vs-Centralisé
-  (Section~\ref{sec:results}) illustre cette limite.
-  \item \textbf{Grille de confidentialité non recalibrée pour ce jeu de
-  données.} Le budget $\varepsilon$ obtenu ici à $\sigma$ égal est
-  nettement plus élevé que sur le jeu de données infirmières
-  (Section~\ref{sec:results}), du fait de la taille bien plus réduite du
-  jeu d'entraînement local. Une grille dédiée avec des valeurs de $\sigma$
-  plus élevées serait nécessaire pour viser un $\varepsilon$ cible
-  comparable au rapport principal.
+  \item \textbf{Quantification INT8 non mesurée.} Ce travail rapporte
+  uniquement la précision en virgule flottante 32 bits (FP32) ; l'erreur de
+  quantification dynamique post-entraînement, pourtant pertinente pour un
+  déploiement MCU réel, n'a pas été mesurée ici.
+  \item \textbf{$\mu$ de FedProx non ré-optimisé pour WESAD.} La valeur
+  $\mu=0{,}05$ (Section~\ref{subsec:fedprox}) reste dans la plage usuelle de
+  la littérature FedProx, mais n'a pas été balayée sur une grille dédiée à ce
+  jeu de données précis ; l'absence de coût du FL mesurée ici
+  (Section~\ref{sec:results}) pourrait masquer une sensibilité à ce paramètre
+  non explorée.
+  \item \textbf{Split chronologique et mono-classe protocolaire.} 7 des 15
+  sujets ont un test-set mono-classe pour une raison propre à l'ordre du
+  protocole WESAD (Section~\ref{sec:method}). Un split stratifié plutôt que
+  chronologique éliminerait probablement ce phénomène, mais réintroduirait un
+  risque de fuite entre fenêtres chevauchantes qu'il faudrait traiter
+  spécifiquement (par exemple en retirant les fenêtres directement
+  adjacentes à la frontière train/test plutôt qu'un simple gap temporel).
+  \item \textbf{Restriction aux capteurs du poignet.} Le capteur torse
+  RespiBAN (ECG, respiration) a été volontairement écarté pour rester
+  cohérent avec un scénario de déploiement bracelet réaliste
+  (Section~\ref{sec:method}) ; les résultats ne sont donc pas directement
+  comparables aux publications WESAD exploitant l'ensemble des capteurs.
+  \item \textbf{Une seule architecture de personnalisation testée.} FedPer
+  a été retenu pour son coût d'implémentation minimal
+  (Section~\ref{subsec:fedper}), mais d'autres architectures (tête
+  multi-couches, correction de dérive par variable de contrôle plutôt que
+  terme proximal) pourraient personnaliser davantage, au prix d'un coût de
+  calcul et de communication plus élevé, non quantifié dans ce travail.
+  \item \textbf{Effectif centralisé réduit ($n=5$).} Certaines comparaisons
+  impliquant le centralisé ont une puissance statistique plus faible que les
+  comparaisons FL-vs-FL (25 valeurs), illustré par le cas de l'AUC
+  FedPer-vs-Centralisé (Section~\ref{sec:results}), où l'effet est large mais
+  non significatif.
+  \item \textbf{Scénario du nouveau bracelet limité à un seul sujet.} Un
+  résultat illustratif sur 5 graines (Section~\ref{subsec:new_joiner}), pas
+  une conclusion généralisable à l'ensemble des profils physiologiques
+  possibles ; la bimodalité jour-1 observée pourrait être propre au sujet~2.
+  \item \textbf{Fine-tuning local non régularisé, à améliorer.} Le
+  fine-tuning post-hoc testé (Section~\ref{subsec:new_joiner}) n'apporte pas
+  de gain fiable en moyenne ($p=0{,}42$) et peut faire chuter substantiellement
+  une graine initialement bien calibrée, faute de tout mécanisme de
+  régularisation ou de critère d'arrêt. Un fine-tuning avec un terme
+  proximal ancré au modèle global, un arrêt anticipé sur un jeu de
+  validation dédié, ou un taux d'apprentissage plus faible constituent des
+  pistes directes non explorées ici pour fiabiliser cette étape.
 \end{itemize}
+
+\section{Conclusion}
+
+Ce travail montre qu'un pipeline d'apprentissage fédéré personnalisé,
+respectant une contrainte de taille de modèle TinyML et une garantie formelle
+de confidentialité différentielle, peut égaler puis dépasser significativement
+un entraînement centralisé non contraint sur un jeu de données de détection
+du stress standardisé. Le coût habituellement attribué au FL et à la
+confidentialité différentielle n'est ici pas une fatalité architecturale,
+mais dépend directement du degré d'hétérogénéité entre les participants : sur
+un protocole quasi-IID comme WESAD, ce coût devient statistiquement
+indétectable, et une personnalisation légère suffit à dépasser le plafond
+centralisé théorique, tout en conservant un modèle déployable en 5,32~Ko sur
+microcontrôleur.
 
 \printbibliography
 
