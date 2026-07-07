@@ -181,6 +181,28 @@ fréquences hétérogènes, garde le pipeline de featurisation simple et
 directement réutilisable pour un modèle tabulaire à taille fixe, condition
 nécessaire pour un modèle de quelques Ko.
 
+\paragraph{Limite du moyennage de bloc sur le canal BVP.} Le BVP étant un
+signal quasi périodique (fréquence cardiaque $\approx 1$~Hz), une moyenne
+arithmétique sur un bloc de 16 échantillons bruts (0,25~s à 64~Hz) lisse la
+forme d'onde pulsatile elle-même. Sur les 8 sujets au test-set mixte
+(Section~\ref{sec:method}), la statistique $\mu_{\text{BVP}}$ par fenêtre de
+15~s présente une corrélation quasi nulle avec le label stress
+($r = 0{,}008$), confirmant qu'elle n'encode pas d'information exploitable
+sur la variabilité cardiaque. Les trois autres statistiques du même canal
+retiennent en revanche un signal réel et même plus marqué que l'EDA sur ces
+mêmes sujets : $\sigma_{\text{BVP}}$ ($r=0{,}41$), $\min_{\text{BVP}}$
+($r=-0{,}35$) et $\max_{\text{BVP}}$ ($r=0{,}38$), à comparer à
+$r=0{,}34$ pour la moyenne d'EDA sur le même sous-ensemble. Le modèle
+dispose donc d'un signal cardiovasculaire partiel, capturé par l'amplitude
+et la dispersion du signal décimé plutôt que par sa valeur moyenne, mais
+pas de la variabilité inter-battements (HRV) qu'une extraction de pics BVP
+en amont du moyennage aurait préservée. Ce choix est documenté ici comme une
+limite assumée (Section~\ref{sec:limits}), pas comme un défaut découvert a
+posteriori : la featurisation par statistiques de bloc, retenue pour sa
+simplicité et son coût de calcul compatible TinyML, sacrifie une partie de
+l'information cardiovasculaire discriminante disponible dans le signal BVP
+brut, sans pour autant rendre ce canal inutile au modèle.
+
 Le label brut comporte 8 valeurs, documentées dans le jeu de données :
 0~=~transitoire, 1~=~baseline, 2~=~stress (TSST), 3~=~amusement,
 4~=~méditation, 5/6/7~=~conditions additionnelles à ignorer. Seules les
@@ -209,7 +231,26 @@ capturer cette dynamique phasique tout en produisant un nombre de fenêtres
 raisonnable sur une session d'environ 90~minutes ($\approx 400$ fenêtres par
 sujet après filtrage des labels à ignorer). Le label de chaque fenêtre est
 assigné par vote majoritaire sur les labels bruts qu'elle contient, comme la
-featurisation elle-même.
+featurisation elle-même. Le protocole TSST étant un événement continu, pas
+instantané, les fenêtres à cheval sur une transition entre deux conditions
+(par exemple baseline~$\to$~stress) peuvent recevoir un label majoritaire
+qui ne reflète qu'imparfaitement leur contenu réel : une source de bruit
+d'étiquetage aux frontières, mineure en volume mais dont le poids relatif
+est plus grand sur la classe minoritaire stress ($\approx 22\,\%$ des
+fenêtres retenues).
+
+\textbf{Justification de l'absence de décomposition tonique/phasique de
+l'EDA.} La littérature de détection du stress par EDA décompose
+généralement le signal en une composante tonique (niveau de base lentement
+variable) et une composante phasique (réponses électrodermales, SCR),
+comptées et caractérisées individuellement. Ce travail retient à la place
+les 4 statistiques de base (moyenne, écart-type, min, max) du signal brut
+par fenêtre, un choix dicté par la contrainte TinyML : la détection de SCR
+nécessite un filtrage et une détection de pics par canal, un coût de calcul
+embarqué non négligeable sur microcontrôleur pour un gain de performance non
+garanti sur ce jeu de données précis, non quantifié dans ce travail. C'est
+une simplification assumée, pas un oubli, mais qui laisse probablement une
+marge de performance sur la table (Section~\ref{sec:limits}).
 
 \paragraph{Split temporel et anti-fuite.} Le recouvrement de 50~\% entre
 fenêtres consécutives implique que deux fenêtres voisines partagent la moitié
@@ -272,6 +313,18 @@ sujets ($\approx 398$ par sujet), un ordre de grandeur nettement plus petit
 que les jeux de données de détection de stress en conditions réelles
 (sessions de plusieurs heures par participant), une conséquence directe de
 la durée fixe et courte ($\approx 90$~min) du protocole de laboratoire WESAD.
+Après le split 80/20 (Section~\ref{sec:method}), le test-set par sujet
+compte $\approx 80$ fenêtres, et un peu moins pour les 8 sujets informatifs
+une fois le gap anti-fuite retiré (75 à 80 fenêtres, Tableau~\ref{tab:class_composition}),
+soit $\approx 640$ fenêtres au total une fois regroupées pour un run donné.
+Cet effectif est à garder en tête pour interpréter les tests statistiques
+du reste de ce document (Section~\ref{sec:results}) à deux niveaux
+distincts : les $p$-values très petites qui y sont rapportées portent sur
+la comparaison de 25 (ou 5) valeurs de balanced-accuracy \emph{par run}
+entre conditions, pas directement sur les fenêtres individuelles ; mais
+chacune de ces valeurs par run est elle-même une estimation sur
+$\approx 640$ fenêtres pooled, un effectif modeste qui borne la précision de
+chaque point avant même la comparaison entre conditions.
 
 \subsection{Architecture du modèle : MLP Tiny}
 \label{subsec:model}
@@ -795,6 +848,28 @@ que d'être laissé courir un nombre d'époques fixe sans surveillance.
 \label{sec:limits}
 
 \begin{itemize}
+  \item \textbf{Featurisation BVP sous-optimale.} Le moyennage de bloc
+  appliqué au canal BVP (Section~\ref{sec:method}) détruit la forme d'onde
+  pulsatile et empêche l'extraction de la variabilité inter-battements
+  (HRV), signal cardiovasculaire le plus discriminant pour la réponse au
+  stress dans la littérature PPG. La moyenne par fenêtre de ce canal est en
+  conséquence quasi non-informative ($r=0{,}008$ avec le label), même si les
+  statistiques d'amplitude (écart-type, min, max) retiennent un signal réel.
+  Une itération future extrayant la fréquence cardiaque instantanée par
+  détection de pics avant featurisation constituerait l'amélioration la
+  plus directe de ce pipeline.
+  \item \textbf{Absence de décomposition tonique/phasique de l'EDA.} Les 4
+  statistiques de base retenues (Section~\ref{sec:method}) n'extraient pas
+  les réponses électrodermales (SCR) individuellement, contrairement à la
+  pratique courante en détection de stress par EDA ; ce choix, dicté par le
+  coût de calcul embarqué d'une détection de pics sur microcontrôleur,
+  laisse probablement une marge de performance non exploitée.
+  \item \textbf{Bruit d'étiquetage aux frontières de condition.} Le
+  label par vote majoritaire (Section~\ref{sec:method}) peut mal étiqueter
+  les quelques fenêtres à cheval sur une transition entre deux conditions du
+  protocole (le TSST étant un événement continu) ; un effet probablement
+  mineur en volume mais dont le poids relatif est plus grand sur la classe
+  minoritaire stress.
   \item \textbf{Quantification INT8 non mesurée.} Ce travail rapporte
   uniquement la précision en virgule flottante 32 bits (FP32) ; l'erreur de
   quantification dynamique post-entraînement, pourtant pertinente pour un
