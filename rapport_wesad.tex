@@ -669,7 +669,7 @@ standard, sans DP ni terme proximal) sur les données d'entraînement de ce
 même sujet ; \textbf{(3)~trajectoire}, une évaluation après chaque époque de
 ce fine-tuning, pour voir comment la performance évolue pas à pas plutôt que
 de ne regarder qu'un point d'arrivée arbitraire. La durée du fine-tuning a
-été étendue à \textbf{20 époques} (au lieu d'un nombre fixe choisi sans
+été étendue à \textbf{30 époques} (au lieu d'un nombre fixe choisi sans
 justification) précisément pour identifier où la trajectoire se stabilise
 réellement, plutôt que de s'arrêter à un point choisi arbitrairement ; le
 mélange aléatoire des lots (\textit{batch shuffling}) du fine-tuning est de
@@ -684,8 +684,9 @@ second.
 Tableau~\ref{tab:new_joiner} montre la trajectoire moyenne sur les 5 graines
 : la balanced-accuracy part de $78{,}6\,\%$ au jour~1 et descend
 progressivement jusqu'à se stabiliser autour de $71{,}3\,\%$ à partir de
-l'époque~13 environ, un plateau qui persiste ensuite jusqu'à l'époque~20.
-Mais cette moyenne cache une réalité plus tranchée, visible dans le détail
+l'époque~13 environ, un plateau vérifié stable jusqu'à l'époque~30 (aucune
+valeur ne bouge entre l'époque~20 et l'époque~30, à la décimale près, pour
+aucune des 5 graines). Mais cette moyenne cache une réalité plus tranchée, visible dans le détail
 par graine (Tableau~\ref{tab:new_joiner_per_seed}) : 3 graines (7, 31415, 42)
 atteignent déjà $97\,\%$ de balanced-accuracy \emph{au jour~1}, avant toute
 adaptation, tandis que 2 autres (123, 2024) s'effondrent à $\approx 50\,\%$,
@@ -707,8 +708,8 @@ commence.
     4          & $77{,}5 \pm 20{,}2\,\%$ & $0{,}9668 \pm 0{,}0125$ & $56{,}5\,\%$ / $98{,}4\,\%$ \\
     8          & $72{,}7 \pm 20{,}8\,\%$ & $0{,}9728 \pm 0{,}0104$ & $46{,}9\,\%$ / $98{,}4\,\%$ \\
     13         & $71{,}3 \pm 21{,}5\,\%$ & $0{,}9725 \pm 0{,}0103$ & $44{,}2\,\%$ / $98{,}4\,\%$ \\
-    16         & $71{,}3 \pm 21{,}5\,\%$ & $0{,}9725 \pm 0{,}0103$ & $44{,}2\,\%$ / $98{,}4\,\%$ \\
-    20 (plateau) & $71{,}3 \pm 21{,}5\,\%$ & $0{,}9729 \pm 0{,}0107$ & $44{,}2\,\%$ / $98{,}4\,\%$ \\
+    20         & $71{,}3 \pm 21{,}5\,\%$ & $0{,}9729 \pm 0{,}0107$ & $44{,}2\,\%$ / $98{,}4\,\%$ \\
+    30 (plateau) & $71{,}3 \pm 21{,}5\,\%$ & $0{,}9746 \pm 0{,}0124$ & $44{,}2\,\%$ / $98{,}4\,\%$ \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -717,11 +718,11 @@ commence.
   \centering
   \small
   \caption{Détail par graine, sujet~2 : balanced-accuracy jour~1, après 8
-  époques, et au plateau (époque~20).}
+  époques, et au plateau (époque~30).}
   \label{tab:new_joiner_per_seed}
   \begin{tabular}{cccc}
     \toprule
-    Graine & Jour~1 & Époque~8 & Époque~20 (plateau) \\
+    Graine & Jour~1 & Époque~8 & Époque~30 (plateau) \\
     \midrule
     42    & $97{,}1\,\%$ & $64{,}4\,\%$ & $56{,}7\,\%$ \\
     123   & $50{,}0\,\%$ & $51{,}9\,\%$ & $52{,}9\,\%$ \\
@@ -737,11 +738,11 @@ chuter bien après l'époque~8.} Un test statistique confirme ce que le
 Tableau~\ref{tab:new_joiner_per_seed} suggère déjà : le fine-tuning n'a
 \textbf{pas d'effet moyen fiable}, que ce soit à l'époque~8 (test $t$
 apparié jour-1-vs-époque-8, $t=0{,}89$, $p=0{,}42$) ou au plateau
-(jour-1-vs-époque-20, $t=0{,}88$, $p=0{,}43$). Mais un point important
+(jour-1-vs-époque-30, $t=0{,}88$, $p=0{,}43$). Mais un point important
 n'était pas visible en s'arrêtant à l'époque~8 comme dans une première
 version de cette expérience : la graine~42 \textbf{continue de se dégrader
 bien après}, passant de $64{,}4\,\%$ à l'époque~8 à $56{,}7\,\%$ au plateau
-(époque~20), soit encore 8 points de perte supplémentaires. Arrêter le
+(époque~30), soit encore 8 points de perte supplémentaires. Arrêter le
 fine-tuning à l'époque~8 aurait donc \emph{sous-estimé} l'ampleur réelle de
 la dégradation pour cette graine. Les 3 autres graines qui ne s'effondrent
 pas (7, 2024, 31415) sont, elles, déjà stabilisées dès l'époque~8 ou avant.
@@ -757,11 +758,11 @@ de réellement mieux distinguer les deux classes.
 
 \paragraph{Sujet~5 : aucune bimodalité, aucun effet du fine-tuning.} La
 réplication sur ce second sujet donne un résultat radicalement différent,
-stable du jour~1 jusqu'à l'époque~20. Les 5 graines convergent vers une
+stable du jour~1 jusqu'à l'époque~30. Les 5 graines convergent vers une
 balanced-accuracy jour~1 \emph{identique}, $99{,}04 \pm 0{,}00\,\%$, et le
 fine-tuning ne change presque rien, que ce soit à l'époque~8
 ($99{,}23 \pm 0{,}38\,\%$, $t=-1{,}00$, $p=0{,}37$) ou au plateau
-($99{,}23 \pm 0{,}38\,\%$ également à l'époque~20) : ni bimodalité, ni
+($99{,}23 \pm 0{,}38\,\%$ également à l'époque~30) : ni bimodalité, ni
 dégradation, à aucun horizon testé.
 
 \paragraph{Ce que ça signifie.} La bimodalité observée sur le sujet~2 n'est
