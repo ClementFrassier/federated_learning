@@ -665,16 +665,12 @@ un sujet est totalement exclu de l'entraînement fédéré : le modèle global
 final n'a donc jamais vu ses données. On évalue ce modèle en trois temps :
 \textbf{(1)~jour~1}, directement sur les données du sujet exclu, sans aucune
 adaptation ; \textbf{(2)~fine-tuning}, un entraînement local classique (SGD
-standard, sans DP ni terme proximal) sur les données d'entraînement de ce
-même sujet ; \textbf{(3)~trajectoire}, une évaluation après chaque époque de
-ce fine-tuning, pour voir comment la performance évolue pas à pas plutôt que
-de ne regarder qu'un point d'arrivée arbitraire. La durée du fine-tuning a
-été étendue à \textbf{30 époques} (au lieu d'un nombre fixe choisi sans
-justification) précisément pour identifier où la trajectoire se stabilise
-réellement, plutôt que de s'arrêter à un point choisi arbitrairement ; le
-mélange aléatoire des lots (\textit{batch shuffling}) du fine-tuning est de
-plus explicitement contrôlé par la graine, pour que la trajectoire entière,
-pas seulement le modèle de départ, soit reproductible. L'expérience est
+standard, sans DP ni terme proximal) sur 30 époques des données
+d'entraînement de ce même sujet, avec le mélange aléatoire des lots
+(\textit{batch shuffling}) contrôlé par la graine pour que la trajectoire
+entière soit reproductible ; \textbf{(3)~trajectoire}, une évaluation après
+chaque époque de ce fine-tuning, pour voir comment la performance évolue
+pas à pas plutôt que de ne regarder qu'un point d'arrivée. L'expérience est
 répétée sur \textbf{deux sujets exclus indépendamment} (sujet~2 / S4 et
 sujet~5 / S7, tous deux $\approx 33\,\%$ de stress en test), 5 graines
 chacun, pour vérifier si un constat fait sur le premier se retrouve sur le
@@ -738,32 +734,101 @@ chuter bien après l'époque~8.} Un test statistique confirme ce que le
 Tableau~\ref{tab:new_joiner_per_seed} suggère déjà : le fine-tuning n'a
 \textbf{pas d'effet moyen fiable}, que ce soit à l'époque~8 (test $t$
 apparié jour-1-vs-époque-8, $t=0{,}89$, $p=0{,}42$) ou au plateau
-(jour-1-vs-époque-30, $t=0{,}88$, $p=0{,}43$). Mais un point important
-n'était pas visible en s'arrêtant à l'époque~8 comme dans une première
-version de cette expérience : la graine~42 \textbf{continue de se dégrader
-bien après}, passant de $64{,}4\,\%$ à l'époque~8 à $56{,}7\,\%$ au plateau
-(époque~30), soit encore 8 points de perte supplémentaires. Arrêter le
-fine-tuning à l'époque~8 aurait donc \emph{sous-estimé} l'ampleur réelle de
-la dégradation pour cette graine. Les 3 autres graines qui ne s'effondrent
-pas (7, 2024, 31415) sont, elles, déjà stabilisées dès l'époque~8 ou avant.
-Comment expliquer la chute de la graine~42~? L'AUC-ROC, elle, ne bouge
-presque pas sur toute la trajectoire ($\approx 0{,}96$--$0{,}97$) : le
-modèle continue donc de bien \emph{classer} les fenêtres par probabilité de
-stress. Ce qui se dérègle, c'est le \emph{seuil} de décision à $0{,}5$ :
-sans aucun garde-fou (ni terme proximal, ni bruit DP) pour freiner
-l'entraînement local, celui-ci pousse progressivement le modèle vers une
-prédiction quasi systématique ``stress'' (rappel stress $98{,}4\,\%$,
-rappel non-stress qui s'effondre de $58{,}9\,\%$ à $44{,}2\,\%$) plutôt que
-de réellement mieux distinguer les deux classes.
+(jour-1-vs-époque-30, $t=0{,}88$, $p=0{,}43$). Un point important n'est pas
+visible en s'arrêtant à l'époque~8 : la graine~42 \textbf{continue de se
+dégrader bien après}, passant de $64{,}4\,\%$ à l'époque~8 à $56{,}7\,\%$ au
+plateau (époque~30), soit encore 8 points de perte supplémentaires. Arrêter
+le fine-tuning à l'époque~8 aurait donc \emph{sous-estimé} l'ampleur réelle
+de la dégradation pour cette graine. Les 3 autres graines qui ne
+s'effondrent pas (7, 2024, 31415) sont, elles, déjà stabilisées dès
+l'époque~8 ou avant. Comment expliquer la chute de la graine~42~?
+L'AUC-ROC, elle, ne bouge presque pas sur toute la trajectoire
+($\approx 0{,}96$--$0{,}97$) : le modèle continue donc de bien
+\emph{classer} les fenêtres par probabilité de stress. Ce qui se dérègle,
+c'est le \emph{seuil} de décision à $0{,}5$ : sans aucun garde-fou (ni terme
+proximal, ni bruit DP) pour freiner l'entraînement local, celui-ci pousse
+progressivement le modèle vers une prédiction quasi systématique ``stress''
+(rappel stress $98{,}4\,\%$, rappel non-stress qui s'effondre de
+$58{,}9\,\%$ à $44{,}2\,\%$) plutôt que de réellement mieux distinguer les
+deux classes.
+
+\paragraph{Les graines ``figées'' entraînent-elles réellement ? Vérification.}
+Trois des cinq graines (7, 2024, 31415) affichent une balanced-accuracy
+\emph{rigoureusement identique} sur des dizaines d'époques consécutives
+(Tableau~\ref{tab:new_joiner_per_seed}), ce qui pourrait suggérer que
+l'entraînement n'a aucun effet pour elles. Un diagnostic direct sur les
+gradients, la dérive des poids et les probabilités prédites (pas seulement
+la métrique finale) écarte cette hypothèse : pour ces trois graines, la
+perte d'entraînement continue de décroître à chaque époque (par exemple, de
+$0{,}029$ à $0{,}006$ sur 10 époques pour la graine~7) et la norme de dérive
+des poids de \texttt{fc1} par rapport au jour~1 croît continûment (de
+$0{,}01$ à $0{,}24$ sur la même fenêtre) : l'entraînement a donc bien lieu.
+Les probabilités prédites bougent elles aussi à chaque époque, mais
+\emph{dans le même sens à chaque fois} : les fenêtres déjà bien classées
+avec une confiance élevée (par exemple une probabilité de stress à
+$0{,}97$) deviennent seulement plus confiantes encore ($0{,}99$, puis
+$0{,}999$\ldots), sans jamais retraverser le seuil de décision à $0{,}5$
+pour rejoindre l'autre classe. Sur un test-set aussi petit ($77$ fenêtres),
+aucune fenêtre ne se trouve alors assez près du seuil pour que ce
+déplacement continu des probabilités ne change une seule prédiction
+discrète, d'où une balanced-accuracy identique à la décimale près malgré un
+entraînement bien réel. La graine~42 se distingue précisément par
+l'existence de telles fenêtres proches du seuil, que l'entraînement fait
+basculer une à une au fil des époques.
 
 \paragraph{Sujet~5 : aucune bimodalité, aucun effet du fine-tuning.} La
 réplication sur ce second sujet donne un résultat radicalement différent,
-stable du jour~1 jusqu'à l'époque~30. Les 5 graines convergent vers une
-balanced-accuracy jour~1 \emph{identique}, $99{,}04 \pm 0{,}00\,\%$, et le
-fine-tuning ne change presque rien, que ce soit à l'époque~8
-($99{,}23 \pm 0{,}38\,\%$, $t=-1{,}00$, $p=0{,}37$) ou au plateau
-($99{,}23 \pm 0{,}38\,\%$ également à l'époque~30) : ni bimodalité, ni
-dégradation, à aucun horizon testé.
+stable du jour~1 jusqu'à l'époque~30 (Tableau~\ref{tab:new_joiner_subj5}).
+Les 5 graines convergent vers une balanced-accuracy jour~1
+\emph{identique}, $99{,}04 \pm 0{,}00\,\%$, et le fine-tuning ne change
+presque rien, que ce soit à l'époque~8 ($99{,}23 \pm 0{,}38\,\%$,
+$t=-1{,}00$, $p=0{,}37$) ou au plateau ($99{,}23 \pm 0{,}38\,\%$ également à
+l'époque~30) : ni bimodalité, ni dégradation, à aucun horizon testé.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Sujet~5 exclu de l'entraînement, trajectoire de l'adaptation
+  locale par SGD standard (moyenne $\pm$ écart-type sur 5 graines).}
+  \label{tab:new_joiner_subj5}
+  \begin{tabular}{cccc}
+    \toprule
+    Époque & Balanced-accuracy & AUC-ROC & Rappel non-stress / stress \\
+    \midrule
+    0 (jour 1) & $99{,}04 \pm 0{,}00\,\%$ & $0{,}9962 \pm 0{,}0077$ & $98{,}1\,\%$ / $100{,}0\,\%$ \\
+    4          & $99{,}62 \pm 0{,}47\,\%$ & $1{,}0000 \pm 0{,}0000$ & $99{,}2\,\%$ / $100{,}0\,\%$ \\
+    8          & $99{,}23 \pm 0{,}38\,\%$ & $1{,}0000 \pm 0{,}0000$ & $98{,}5\,\%$ / $100{,}0\,\%$ \\
+    13         & $99{,}23 \pm 0{,}38\,\%$ & $1{,}0000 \pm 0{,}0000$ & $98{,}5\,\%$ / $100{,}0\,\%$ \\
+    20         & $99{,}23 \pm 0{,}38\,\%$ & $1{,}0000 \pm 0{,}0000$ & $98{,}5\,\%$ / $100{,}0\,\%$ \\
+    30 (plateau) & $99{,}23 \pm 0{,}38\,\%$ & $1{,}0000 \pm 0{,}0000$ & $98{,}5\,\%$ / $100{,}0\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Détail par graine, sujet~5 : balanced-accuracy jour~1, après 8
+  époques, et au plateau (époque~30).}
+  \label{tab:new_joiner_per_seed_subj5}
+  \begin{tabular}{cccc}
+    \toprule
+    Graine & Jour~1 & Époque~8 & Époque~30 (plateau) \\
+    \midrule
+    42    & $99{,}0\,\%$ & $99{,}0\,\%$ & $99{,}0\,\%$ \\
+    123   & $99{,}0\,\%$ & $99{,}0\,\%$ & $99{,}0\,\%$ \\
+    7     & $99{,}0\,\%$ & $99{,}0\,\%$ & $99{,}0\,\%$ \\
+    2024  & $99{,}0\,\%$ & $99{,}0\,\%$ & $99{,}0\,\%$ \\
+    31415 & $99{,}0\,\%$ & $100{,}0\,\%$ & $100{,}0\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Contrairement au sujet~2, ici 4 des 5 graines n'évoluent \emph{jamais} d'un
+seul point de pourcentage entre le jour~1 et l'époque~30 : le modèle
+jour~1 est déjà quasi parfait sur ce sujet ($99$--$100\,\%$ de rappel sur
+les deux classes), ne laissant simplement aucune marge de progression ou de
+régression au fine-tuning.
 
 \paragraph{Ce que ça signifie.} La bimodalité observée sur le sujet~2 n'est
 donc \textbf{pas une propriété générale de l'entraînement fédéré} sur ce
