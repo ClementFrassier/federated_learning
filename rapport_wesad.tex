@@ -659,21 +659,31 @@ total.
 \subsection{Scénario du nouveau bracelet}
 \label{subsec:new_joiner}
 
-Un déploiement réel implique qu'un nouveau bracelet rejoigne le système après
-que le modèle global a déjà été entraîné sur les autres utilisateurs, sans
-jamais avoir contribué lui-même. Pour simuler ce scénario, un sujet est
-totalement exclu de l'entraînement fédéré (sa contribution est neutralisée
-dans l'agrégation FedProx via un poids nul, \texttt{num-examples}$=0$) : le
-modèle global final n'a donc jamais vu ses données. Ce modèle est évalué
-directement sur les données du sujet exclu (``jour~1'', zéro adaptation),
-puis affiné localement par SGD standard (sans DP ni terme proximal, un
-entraînement purement local post-déploiement) pendant 8 époques, avec une
-évaluation \textbf{après chaque époque} pour observer la trajectoire
-d'adaptation, pas seulement un point d'arrivée. \textbf{Le scénario est
-répété sur deux sujets exclus indépendamment} (sujet~2, S4, $32{,}5\,\%$ de
-stress en test ; sujet~5, S7, $33{,}3\,\%$ de stress en test), 5 graines
-chacun, pour vérifier si les constats faits sur le premier sujet exclu se
-généralisent à un second.
+\paragraph{Principe.} Que se passe-t-il quand un bracelet rejoint le système
+après coup, sans avoir jamais participé à l'entraînement ? Pour le tester,
+un sujet est totalement exclu de l'entraînement fédéré : le modèle global
+final n'a donc jamais vu ses données. On évalue ce modèle en trois temps :
+\textbf{(1)~jour~1}, directement sur les données du sujet exclu, sans aucune
+adaptation ; \textbf{(2)~fine-tuning}, un entraînement local classique (SGD
+standard, sans DP ni terme proximal) pendant 8 époques sur les données
+d'entraînement de ce même sujet ; \textbf{(3)~trajectoire}, une évaluation
+après chaque époque de ce fine-tuning, pour voir comment la performance
+évolue pas à pas plutôt que de ne regarder que le point d'arrivée.
+L'expérience est répétée sur \textbf{deux sujets exclus indépendamment}
+(sujet~2 / S4 et sujet~5 / S7, tous deux $\approx 33\,\%$ de stress en test),
+5 graines chacun, pour vérifier si un constat fait sur le premier se
+retrouve sur le second.
+
+\paragraph{Sujet~2 : un jour~1 très inégal selon la graine.} Le
+Tableau~\ref{tab:new_joiner} montre la trajectoire moyenne sur les 5 graines
+: la balanced-accuracy part de $78{,}6\,\%$ au jour~1 et descend
+progressivement à $71{,}7\,\%$ après 8 époques. Mais cette moyenne cache une
+réalité plus tranchée, visible dans le détail par graine
+(Tableau~\ref{tab:new_joiner_per_seed}) : 3 graines (7, 31415, 42) atteignent
+déjà $97\,\%$ de balanced-accuracy \emph{au jour~1}, avant toute adaptation,
+tandis que 2 autres (123, 2024) s'effondrent à $\approx 50\,\%$, le modèle
+prédisant alors ``stress'' pour presque toutes les fenêtres. Ce résultat
+bimodal existe donc \emph{avant} même que le fine-tuning ne commence.
 
 \begin{table}[h!]
   \centering
@@ -694,14 +704,6 @@ généralisent à un second.
   \end{tabular}
 \end{table}
 
-Le détail par graine du sujet~2 (Tableau~\ref{tab:new_joiner_per_seed})
-révèle un comportement bimodal, déjà présent \emph{avant} toute adaptation
-locale : les graines 7, 31415 et 42 atteignent $97{,}0$--$97{,}1\,\%$ de
-balanced-accuracy dès le jour~1, tandis que les graines 123 et 2024
-s'effondrent à $50{,}0$--$51{,}9\,\%$ (le modèle global prédit déjà
-systématiquement ``stress'' sur les données du sujet~2, avant même toute
-adaptation locale).
-
 \begin{table}[h!]
   \centering
   \small
@@ -721,41 +723,40 @@ adaptation locale).
   \end{tabular}
 \end{table}
 
-\textbf{La réplication sur le sujet~5 ne reproduit pas cette bimodalité.}
-Sur ce second sujet exclu, les 5 graines donnent une balanced-accuracy
-jour~1 \emph{identique} à la troisième décimale près ($99{,}04 \pm
-0{,}00\,\%$), et le fine-tuning ne change quasiment rien
-($99{,}23 \pm 0{,}38\,\%$ après 8 époques, $t=-1{,}00$, $p=0{,}37$) : ni
-bimodalité, ni dégradation. \textbf{La bimodalité jour~1 observée sur le
-sujet~2 n'est donc pas une propriété générale de l'entraînement fédéré sur
-ce jeu de données} : c'est une caractéristique propre à la difficulté ou à
-l'ambiguïté du profil physiologique du sujet exclu, pas un phénomène qui se
-reproduirait pour n'importe quel nouveau sujet. Avec seulement 2 sujets
-testés, on ne peut pas encore caractériser ce qui rend un sujet
+\paragraph{Le fine-tuning n'aide pas en moyenne, et peut faire chuter une
+bonne graine.} Un test statistique confirme ce que le Tableau~\ref{tab:new_joiner_per_seed}
+suggère déjà : le fine-tuning n'a \textbf{pas d'effet moyen fiable} (test
+$t$ apparié jour-1-vs-après-8-époques, $t=0{,}91$, $p=0{,}42$ ; Wilcoxon,
+$p=1{,}00$). La baisse moyenne visible dans le Tableau~\ref{tab:new_joiner}
+vient presque entièrement d'une seule graine, la~42, qui chute de $97{,}1\,\%$
+à $59{,}6\,\%$ ; les 4 autres graines restent quasiment stables (moins de 2
+points d'écart), avec même une légère amélioration pour la graine~7.
+Comment expliquer la chute de la graine~42~? L'AUC-ROC, elle, ne bouge pas
+($\approx 0{,}96$--$0{,}97$ tout au long des 8 époques) : le modèle continue
+donc de bien \emph{classer} les fenêtres par probabilité de stress. Ce qui
+se dérègle, c'est le \emph{seuil} de décision à $0{,}5$ : sans aucun
+garde-fou (ni terme proximal, ni bruit DP) pour freiner l'entraînement
+local, celui-ci pousse progressivement le modèle vers une prédiction quasi
+systématique ``stress'' (rappel stress $100\,\%$, rappel non-stress qui
+s'effondre) plutôt que de réellement mieux distinguer les deux classes.
+
+\paragraph{Sujet~5 : aucune bimodalité, aucun effet du fine-tuning.} La
+réplication sur ce second sujet donne un résultat radicalement différent.
+Les 5 graines convergent vers une balanced-accuracy jour~1
+\emph{identique}, $99{,}04 \pm 0{,}00\,\%$, et le fine-tuning ne change
+presque rien ($99{,}23 \pm 0{,}38\,\%$ après 8 époques, $t=-1{,}00$,
+$p=0{,}37$) : ni bimodalité, ni dégradation.
+
+\paragraph{Ce que ça signifie.} La bimodalité observée sur le sujet~2 n'est
+donc \textbf{pas une propriété générale de l'entraînement fédéré} sur ce
+jeu de données : c'est une caractéristique propre à ce sujet précis, pas un
+phénomène qui toucherait n'importe quel nouveau bracelet. Avec seulement 2
+sujets testés, on ne peut pas encore dire ce qui rend un profil
 ``difficile'' (sujet~2) plutôt que ``facile'' (sujet~5) à généraliser en
 zéro-shot ; l'hétérogénéité feature-wise mise en évidence en
 Section~\ref{subsec:label_vs_feature} (en particulier la variabilité du
-niveau tonique d'EDA) est une piste plausible, non vérifiée directement ici.
-
-Sur le sujet~2, le fine-tuning local (SGD standard, sans terme proximal ni
-bruit DP, donc sans aucune régularisation ramenant vers le modèle global)
-n'améliore ni ne dégrade la performance de façon statistiquement
-significative en moyenne (test $t$ apparié jour-1-vs-après-8-époques sur
-les 5 graines, $t=0{,}91$, $p=0{,}42$ ; test de Wilcoxon apparié,
-$p=1{,}00$) : la baisse moyenne observée dans le
-Tableau~\ref{tab:new_joiner} ($78{,}6\,\%$ à $71{,}7\,\%$) est tirée
-presque entièrement par une seule graine (42, qui chute de $97{,}1\,\%$ à
-$59{,}6\,\%$), pas par un effet systématique du fine-tuning. Pour les 4
-autres graines du sujet~2, la performance reste quasiment inchangée après 8
-époques (variations de moins de 2 points, à l'exception d'une légère
-amélioration pour la graine~7). L'AUC-ROC reste stable et élevé
-($\approx 0{,}96$--$0{,}97$) sur l'ensemble de la trajectoire, y compris
-pour la graine~42 dont la balanced-accuracy chute : le modèle continue de
-bien \emph{classer} les fenêtres par probabilité prédite, mais son seuil de
-décision par défaut ($0{,}5$) devient inadapté pour cette graine précise à
-mesure que l'entraînement local, non régularisé, déplace la distribution des
-probabilités prédites vers une prédiction quasi constante ``stress''
-(rappel stress $100\,\%$, rappel non-stress en chute).
+niveau tonique d'EDA d'un sujet à l'autre) est une piste plausible, non
+vérifiée directement ici.
 
 \textbf{Limite à garder à l'esprit} : ce résultat repose sur seulement deux
 sujets exclus. C'est un cas illustratif, pas un résultat généralisable à
