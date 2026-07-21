@@ -756,25 +756,27 @@ deux classes.
 Trois des cinq graines (7, 2024, 31415) affichent une balanced-accuracy
 \emph{rigoureusement identique} sur des dizaines d'époques consécutives
 (Tableau~\ref{tab:new_joiner_per_seed}), ce qui pourrait suggérer que
-l'entraînement n'a aucun effet pour elles. Un diagnostic direct sur les
-gradients, la dérive des poids et les probabilités prédites (pas seulement
-la métrique finale) écarte cette hypothèse : pour ces trois graines, la
-perte d'entraînement continue de décroître à chaque époque (par exemple, de
-$0{,}029$ à $0{,}006$ sur 10 époques pour la graine~7) et la norme de dérive
-des poids de \texttt{fc1} par rapport au jour~1 croît continûment (de
-$0{,}01$ à $0{,}24$ sur la même fenêtre) : l'entraînement a donc bien lieu.
-Les probabilités prédites bougent elles aussi à chaque époque, mais
-\emph{dans le même sens à chaque fois} : les fenêtres déjà bien classées
-avec une confiance élevée (par exemple une probabilité de stress à
-$0{,}97$) deviennent seulement plus confiantes encore ($0{,}99$, puis
-$0{,}999$\ldots), sans jamais retraverser le seuil de décision à $0{,}5$
-pour rejoindre l'autre classe. Sur un test-set aussi petit ($77$ fenêtres),
-aucune fenêtre ne se trouve alors assez près du seuil pour que ce
-déplacement continu des probabilités ne change une seule prédiction
+l'entraînement n'a aucun effet pour elles, voire un bug. Un diagnostic
+direct sur la perte d'entraînement, la dérive des poids et la distance des
+probabilités prédites au seuil de décision (pas seulement la métrique
+finale) écarte cette hypothèse. Pour la graine~31415, suivie sur
+l'intégralité des 30 époques : la perte d'entraînement décroît de façon
+monotone ($0{,}0074$ à l'époque~1 à $0{,}0021$ à l'époque~30) et la norme de
+dérive des poids de \texttt{fc1} par rapport au jour~1 croît continûment
+($0{,}006$ à $0{,}178$ sur la même fenêtre) : l'entraînement a donc bien
+lieu, à chaque époque. La fenêtre de test la plus proche du seuil de
+décision $0{,}5$ se rapproche même progressivement de ce seuil au fil de
+l'entraînement (distance de $0{,}116$ au jour~1 à $0{,}061$ à l'époque~30),
+mais ne le franchit jamais sur les 30 époques testées : aucune des 77
+fenêtres de test n'est donc jamais assez proche du seuil pour qu'un
+déplacement continu des probabilités ne fasse basculer une seule prédiction
 discrète, d'où une balanced-accuracy identique à la décimale près malgré un
-entraînement bien réel. La graine~42 se distingue précisément par
-l'existence de telles fenêtres proches du seuil, que l'entraînement fait
-basculer une à une au fil des époques.
+entraînement bien réel et mesurable. Les graines 7 et 2024 présentent le
+même profil qualitatif (perte décroissante, poids en dérive continue,
+aucune fenêtre ne franchissant le seuil). La graine~42 se distingue
+précisément par l'existence de fenêtres déjà suffisamment proches du seuil
+au départ pour que l'entraînement les fasse basculer une à une au fil des
+époques.
 
 \paragraph{Sujet~5 : aucune bimodalité, aucun effet du fine-tuning.} La
 réplication sur ce second sujet donne un résultat radicalement différent,
