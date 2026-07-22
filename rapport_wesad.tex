@@ -785,24 +785,32 @@ l'unique cause de la bimodalité jour~1.
   \end{tabular}
 \end{table}
 
-\paragraph{Les résultats de fine-tuning qui suivent~: à lire comme des
-trajectoires illustratives, pas comme des propriétés fixes d'une graine.}
-Le Tableau~\ref{tab:new_joiner} et le Tableau~\ref{tab:new_joiner_per_seed}
-ci-dessous, ainsi que le diagnostic ``graines figées'' qui les accompagne,
-ont été produits \emph{avant} la vérification de reproductibilité
-ci-dessus, sur les 5 réalisations originales (une par graine nominale).
-Ce sont des trajectoires d'entraînement réelles et valides
-individuellement, mais on sait désormais qu'elles ne représentent qu'un
-tirage parmi plusieurs issues possibles pour chaque graine, pas un résultat
-que cette graine reproduirait à coup sûr. Elles restent informatives sur ce
-qui \emph{peut} arriver au cours d'un fine-tuning une fois un jour~1 donné
-obtenu, la question centrale de ce paragraphe.
+\paragraph{Les résultats de fine-tuning qui suivent~: cinq réalisations
+individuelles, pas cinq graines reproductibles.} Le Tableau~\ref{tab:new_joiner}
+ci-dessous, ainsi que le diagnostic qui l'accompagne, ont été produits
+\emph{avant} la vérification de reproductibilité ci-dessus, sur les 5
+réalisations originales obtenues avec les valeurs de graine 42, 123, 7,
+2024 et 31415. Un tableau détaillant ces 5 valeurs individuellement
+figurait dans une version antérieure de ce rapport, étiqueté par graine ;
+il a été retiré, précisément parce qu'il aurait fallu, pour rester cohérent
+avec l'étude de reproductibilité ci-dessus, le refaire sur les 20
+réalisations désormais disponibles pour être informatif de la même façon,
+ce qui n'a été fait que pour le jour~1 (Tableau~\ref{tab:seed_variance}),
+pas pour la trajectoire de fine-tuning complète. Ce qui suit désigne donc
+chaque réalisation par un numéro (1 à 5), pas par sa graine nominale, pour
+ne pas laisser croire qu'elle serait reproduite à l'identique en relançant
+la même commande ; ce sont des trajectoires d'entraînement réelles et
+valides individuellement, informatives sur ce qui \emph{peut} arriver au
+cours d'un fine-tuning une fois un jour~1 donné obtenu, sans prétendre
+caractériser la distribution complète de ce qui peut arriver (contrairement
+au jour~1, non refait ici faute de budget de calcul).
 
 \begin{table}[h!]
   \centering
   \small
   \caption{Sujet~2 exclu de l'entraînement, trajectoire de l'adaptation
-  locale par SGD standard (moyenne $\pm$ écart-type sur 5 graines).}
+  locale par SGD standard (moyenne $\pm$ écart-type sur les 5 réalisations
+  initiales, avant la vérification de reproductibilité).}
   \label{tab:new_joiner}
   \begin{tabular}{cccc}
     \toprule
@@ -818,38 +826,19 @@ obtenu, la question centrale de ce paragraphe.
   \end{tabular}
 \end{table}
 
-\begin{table}[h!]
-  \centering
-  \small
-  \caption{Détail par graine, sujet~2 : balanced-accuracy jour~1, après 8
-  époques, et au plateau (époque~30).}
-  \label{tab:new_joiner_per_seed}
-  \begin{tabular}{cccc}
-    \toprule
-    Graine & Jour~1 & Époque~8 & Époque~30 (plateau) \\
-    \midrule
-    42    & $97{,}1\,\%$ & $64{,}4\,\%$ & $56{,}7\,\%$ \\
-    123   & $50{,}0\,\%$ & $51{,}9\,\%$ & $52{,}9\,\%$ \\
-    7     & $97{,}0\,\%$ & $98{,}0\,\%$ & $98{,}0\,\%$ \\
-    2024  & $51{,}9\,\%$ & $51{,}9\,\%$ & $51{,}9\,\%$ \\
-    31415 & $97{,}0\,\%$ & $97{,}0\,\%$ & $97{,}0\,\%$ \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\paragraph{Le fine-tuning n'aide pas en moyenne, et la graine~42 continue de
-chuter bien après l'époque~8.} Un test statistique confirme ce que le
-Tableau~\ref{tab:new_joiner_per_seed} suggère déjà : le fine-tuning n'a
-\textbf{pas d'effet moyen fiable}, que ce soit à l'époque~8 (test $t$
-apparié jour-1-vs-époque-8, $t=0{,}89$, $p=0{,}42$) ou au plateau
-(jour-1-vs-époque-30, $t=0{,}88$, $p=0{,}43$). Un point important n'est pas
-visible en s'arrêtant à l'époque~8 : la graine~42 \textbf{continue de se
-dégrader bien après}, passant de $64{,}4\,\%$ à l'époque~8 à $56{,}7\,\%$ au
-plateau (époque~30), soit encore 8 points de perte supplémentaires. Arrêter
-le fine-tuning à l'époque~8 aurait donc \emph{sous-estimé} l'ampleur réelle
-de la dégradation pour cette graine. Les 3 autres graines qui ne
-s'effondrent pas (7, 2024, 31415) sont, elles, déjà stabilisées dès
-l'époque~8 ou avant. Comment expliquer la chute de la graine~42~?
+\paragraph{Le fine-tuning n'aide pas en moyenne, et une réalisation partie
+à $97\,\%$ continue de chuter bien après l'époque~8.} Un test statistique
+confirme que le fine-tuning n'a \textbf{pas d'effet moyen fiable}, que ce
+soit à l'époque~8 (test $t$ apparié jour-1-vs-époque-8, $t=0{,}89$,
+$p=0{,}42$) ou au plateau (jour-1-vs-époque-30, $t=0{,}88$, $p=0{,}43$). Un
+point important n'est pas visible en s'arrêtant à l'époque~8 : la
+réalisation partie de $97{,}1\,\%$ au jour~1 (graine nominale 42)
+\textbf{continue de se dégrader bien après}, passant de $64{,}4\,\%$ à
+l'époque~8 à $56{,}7\,\%$ au plateau (époque~30), soit encore 8 points de
+perte supplémentaires. Arrêter le fine-tuning à l'époque~8 aurait donc
+\emph{sous-estimé} l'ampleur réelle de la dégradation pour cette
+réalisation. Les 3 autres réalisations qui ne s'effondrent pas sont, elles,
+déjà stabilisées dès l'époque~8 ou avant. Comment expliquer cette chute~?
 L'AUC-ROC, elle, ne bouge presque pas sur toute la trajectoire
 ($\approx 0{,}96$--$0{,}97$) : le modèle continue donc de bien
 \emph{classer} les fenêtres par probabilité de stress. Ce qui se dérègle,
@@ -860,17 +849,17 @@ progressivement le modèle vers une prédiction quasi systématique ``stress''
 $58{,}9\,\%$ à $44{,}2\,\%$) plutôt que de réellement mieux distinguer les
 deux classes.
 
-\paragraph{Les graines ``figées'' entraînent-elles réellement ? Vérification.}
-Trois des cinq graines (7, 2024, 31415) affichent une balanced-accuracy
-\emph{rigoureusement identique} sur des dizaines d'époques consécutives
-(Tableau~\ref{tab:new_joiner_per_seed}), ce qui pourrait suggérer que
-l'entraînement n'a aucun effet pour elles, voire un bug. Un diagnostic
-direct sur la perte d'entraînement, la dérive des poids et la distance des
-probabilités prédites au seuil de décision (pas seulement la métrique
-finale) écarte cette hypothèse. Pour la graine~31415, suivie sur
-l'intégralité des 30 époques : la perte d'entraînement décroît de façon
-monotone ($0{,}0074$ à l'époque~1 à $0{,}0021$ à l'époque~30) et la norme de
-dérive des poids de \texttt{fc1} par rapport au jour~1 croît continûment
+\paragraph{Une balanced-accuracy identique sur des dizaines d'époques :
+un bug ? Vérification.} Trois des cinq réalisations affichent une
+balanced-accuracy \emph{rigoureusement identique} sur des dizaines d'époques
+consécutives, ce qui pourrait suggérer que l'entraînement n'a aucun effet
+pour elles, voire un bug. Un diagnostic direct sur la perte d'entraînement,
+la dérive des poids et la distance des probabilités prédites au seuil de
+décision (pas seulement la métrique finale) écarte cette hypothèse. Pour la
+réalisation issue de la graine nominale 31415, suivie sur l'intégralité des
+30 époques : la perte d'entraînement décroît de façon monotone
+($0{,}0074$ à l'époque~1 à $0{,}0021$ à l'époque~30) et la norme de dérive
+des poids de \texttt{fc1} par rapport au jour~1 croît continûment
 ($0{,}006$ à $0{,}178$ sur la même fenêtre) : l'entraînement a donc bien
 lieu, à chaque époque. La fenêtre de test la plus proche du seuil de
 décision $0{,}5$ se rapproche même progressivement de ce seuil au fil de
@@ -879,12 +868,12 @@ mais ne le franchit jamais sur les 30 époques testées : aucune des 77
 fenêtres de test n'est donc jamais assez proche du seuil pour qu'un
 déplacement continu des probabilités ne fasse basculer une seule prédiction
 discrète, d'où une balanced-accuracy identique à la décimale près malgré un
-entraînement bien réel et mesurable. Les graines 7 et 2024 présentent le
-même profil qualitatif (perte décroissante, poids en dérive continue,
-aucune fenêtre ne franchissant le seuil). La graine~42 se distingue
-précisément par l'existence de fenêtres déjà suffisamment proches du seuil
-au départ pour que l'entraînement les fasse basculer une à une au fil des
-époques.
+entraînement bien réel et mesurable. Les réalisations issues des graines
+nominales 7 et 2024 présentent le même profil qualitatif (perte
+décroissante, poids en dérive continue, aucune fenêtre ne franchissant le
+seuil). La réalisation issue de la graine~42 se distingue précisément par
+l'existence de fenêtres déjà suffisamment proches du seuil au départ pour
+que l'entraînement les fasse basculer une à une au fil des époques.
 
 \paragraph{Sujet~5 : cinq réalisations stables, mais un échantillon trop
 restreint pour conclure à l'absence de bimodalité.} La réplication sur ce
@@ -1068,10 +1057,10 @@ agissant comme régularisation implicite sur l'extracteur partagé,
 Section~\ref{subsec:fedper}) : c'est un entraînement purement local, sans
 ancrage au modèle global, sur un jeu de données minuscule ($\approx 316$
 fenêtres). Statistiquement, sur les 5 trajectoires originales testées
-(Tableau~\ref{tab:new_joiner_per_seed}, à lire comme des illustrations
-individuelles et non reproductibles à l'identique, voir
-Section~\ref{subsec:new_joiner}), ce fine-tuning non régularisé n'apporte
-ni gain ni perte fiable en moyenne sur le sujet~2, mais peut faire chuter
+(Tableau~\ref{tab:new_joiner}, à lire comme des illustrations individuelles
+et non reproductibles à l'identique, voir Section~\ref{subsec:new_joiner}),
+ce fine-tuning non régularisé n'apporte ni gain ni perte fiable en moyenne
+sur le sujet~2, mais peut faire chuter
 substantiellement une trajectoire initialement bien calibrée ; sur le
 sujet~5, il ne change quasiment rien, la performance jour~1 étant déjà
 proche du plafond. Ceci suggère qu'un fine-tuning local, pour être utilisé
