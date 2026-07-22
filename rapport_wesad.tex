@@ -77,19 +77,26 @@ dépasse significativement les deux autres conditions}
 ($87{,}6 \pm 3{,}8\,\%$, $p<10^{-5}$ dans les deux comparaisons). L'AUC-ROC
 reste dans tous les cas entre $0{,}88$ et $0{,}91$ : aucune des trois
 conditions n'échoue à généraliser sur ce jeu de données. Le scénario du
-nouveau bracelet, répété sur deux sujets exclus indépendamment, révèle un
-résultat plus inattendu : la performance jour~1 (zéro adaptation) d'un
-modèle jamais entraîné sur les données d'un sujet dépend fortement du sujet
-exclu, pas d'une propriété générale de l'entraînement fédéré, un premier
-sujet montrant une \textbf{bimodalité selon la graine} (3 des 5 graines
-testées atteignent $97\,\%$ de balanced-accuracy dès le jour~1, 2
-s'effondrent à $\approx 50\,\%$) tandis qu'un second généralise de façon
-stable et quasi identique sur les 5 graines ($99{,}0\,\%$). La
-personnalisation locale non régularisée qui suit (SGD standard, sans terme
-proximal ni bruit DP) n'améliore ni ne dégrade la performance de façon
-statistiquement significative en moyenne pour ces deux sujets, mais peut
-faire chuter substantiellement une graine initialement performante par
-dérive vers une prédiction quasi constante ``stress''.
+nouveau bracelet a d'abord laissé penser que la performance jour~1 (zéro
+adaptation) dépendait de la graine de partition utilisée, avant qu'un
+réentraînement à l'identique ne révèle que ce n'était pas le cas : la même
+commande, rejouée avec la même graine nominale, produit un modèle global
+différent, parce que le bruit DP-SGD n'est volontairement pas figé
+round après round. Une étude dédiée sur 20 entraînements indépendants (5
+graines $\times$ 4 réalisations chacune) caractérise la vraie distribution :
+\textbf{une bimodalité stochastique franche, indépendante de la graine
+nominale} (80\,\% des réalisations atteignent $80$--$99\,\%$ de
+balanced-accuracy jour~1, 20\,\% s'effondrent à $\approx 50\,\%$, aucune
+valeur intermédiaire), confirmée comme entièrement imputable au bruit DP-SGD
+par un entraînement de contrôle sans DP produisant trois modèles strictement
+identiques bit à bit. Sur un second sujet, la généralisation jour~1 est en
+revanche stable et élevée sur toutes les réalisations testées
+($99{,}0\,\%$), sans qu'on puisse exclure un effet d'échantillonnage limité.
+La personnalisation locale non régularisée qui suit (SGD standard, sans
+terme proximal ni bruit DP) n'améliore ni ne dégrade la performance de façon
+statistiquement significative en moyenne sur les trajectoires testées, mais
+peut faire chuter substantiellement une trajectoire initialement performante
+par dérive vers une prédiction quasi constante ``stress''.
 
 {\bf Conclusions:}
 Sur un protocole de laboratoire standardisé, l'apprentissage fédéré avec
@@ -676,19 +683,120 @@ sujet~5 / S7, tous deux $\approx 33\,\%$ de stress en test), 5 graines
 chacun, pour vérifier si un constat fait sur le premier se retrouve sur le
 second.
 
-\paragraph{Sujet~2 : un jour~1 très inégal selon la graine.} Le
-Tableau~\ref{tab:new_joiner} montre la trajectoire moyenne sur les 5 graines
-: la balanced-accuracy part de $78{,}6\,\%$ au jour~1 et descend
-progressivement jusqu'à se stabiliser autour de $71{,}3\,\%$ à partir de
-l'époque~13 environ, un plateau vérifié stable jusqu'à l'époque~30 (aucune
-valeur ne bouge entre l'époque~20 et l'époque~30, à la décimale près, pour
-aucune des 5 graines). Mais cette moyenne cache une réalité plus tranchée, visible dans le détail
-par graine (Tableau~\ref{tab:new_joiner_per_seed}) : 3 graines (7, 31415, 42)
-atteignent déjà $97\,\%$ de balanced-accuracy \emph{au jour~1}, avant toute
-adaptation, tandis que 2 autres (123, 2024) s'effondrent à $\approx 50\,\%$,
-le modèle prédisant alors ``stress'' pour presque toutes les fenêtres. Ce
-résultat bimodal existe donc \emph{avant} même que le fine-tuning ne
-commence.
+\paragraph{Mise en garde : la graine de partition ne fixe pas tout
+l'entraînement.} La graine (\texttt{partition-seed}) contrôle
+l'initialisation du modèle et l'ordre des données au premier round, mais pas
+le bruit gaussien tiré par DP-SGD (Opacus) aux rounds suivants : par
+construction, chaque client ne réinitialise son générateur aléatoire qu'une
+seule fois, à son premier usage, précisément pour que ce bruit ne soit
+\emph{jamais} identique d'un round à l'autre (une exigence de la
+confidentialité différentielle). Conséquence directe, découverte en
+rejouant à l'identique l'entraînement complet de la graine~31415 sur le
+sujet~2~: la commande, strictement identique, produit un modèle global
+différent (balanced-accuracy jour~1 de $97{,}0\,\%$ la première fois, puis
+$92{,}2\,\%$ en rejouant). Une valeur de graine ne désigne donc pas un
+résultat fixe et reproductible pour ce protocole, un point qui a
+directement motivé l'étude de reproductibilité ci-dessous avant toute
+autre analyse.
+
+\paragraph{Sujet~2 : caractérisation de la vraie variance jour~1 (20
+réalisations).} Pour quantifier cette variance plutôt que de la découvrir
+par accident, chacune des 5 valeurs de graine déjà utilisées a été
+réentraînée 3~fois de plus dans les mêmes conditions (sujet~2 exclu,
+$\sigma=0{,}8$, 30~rounds), donnant 20~réalisations indépendantes (5 graines
+$\times$ 4~essais) de la performance jour~1. Le
+Tableau~\ref{tab:seed_variance} présente le résultat complet~: sur les 20
+réalisations, 16 ($80\,\%$) atteignent entre $80{,}0$ et $99{,}0\,\%$ de
+balanced-accuracy, 4 ($20\,\%$) s'effondrent à $50$--$52\,\%$, et
+\textbf{aucune ne tombe dans l'intervalle intermédiaire} $]55\,\%,
+80\,\%[$. Ce n'est pas une variance continue qui s'accumulerait
+progressivement au fil du bruit DP-SGD~: c'est une bascule discrète entre
+deux régimes distincts. Chaque graine nominale produit, selon
+l'essai, tantôt une réalisation ``haute'', tantôt une réalisation
+``basse'' (par exemple la graine~123~: $50{,}0\,\%$, $51{,}0\,\%$,
+$90{,}4\,\%$, $94{,}2\,\%$) : la bimodalité n'est donc pas une propriété
+d'une graine particulière, mais un comportement stochastique qui peut
+survenir pour n'importe quelle graine.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Sujet~2 exclu : balanced-accuracy jour~1 sur 20 réalisations
+  indépendantes (5 graines nominales $\times$ 1 réalisation originale + 3
+  réentraînements identiques chacune).}
+  \label{tab:seed_variance}
+  \begin{tabular}{ccccccc}
+    \toprule
+    Graine & Orig. & Rép.~1 & Rép.~2 & Rép.~3 & Moyenne & Écart-type \\
+    \midrule
+    42    & $97{,}1\,\%$ & $82{,}7\,\%$ & $92{,}2\,\%$ & $99{,}0\,\%$ & $92{,}8\,\%$ & $6{,}3$ \\
+    123   & $50{,}0\,\%$ & $51{,}0\,\%$ & $90{,}4\,\%$ & $94{,}2\,\%$ & $71{,}4\,\%$ & $21{,}0$ \\
+    7     & $97{,}0\,\%$ & $51{,}9\,\%$ & $96{,}2\,\%$ & $88{,}5\,\%$ & $83{,}4\,\%$ & $18{,}5$ \\
+    2024  & $51{,}9\,\%$ & $89{,}4\,\%$ & $97{,}1\,\%$ & $93{,}3\,\%$ & $82{,}9\,\%$ & $18{,}1$ \\
+    31415 & $97{,}0\,\%$ & $98{,}1\,\%$ & $80{,}7\,\%$ & $90{,}4\,\%$ & $91{,}6\,\%$ & $6{,}9$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Mécanisme~: un effondrement vers une prédiction quasi constante
+``stress'', pas une dégradation progressive.} Le test-set du sujet~2
+comporte 52 fenêtres non-stress et 25 fenêtres stress (77 au total). Les
+réalisations ``basses'' (balanced-accuracy $\approx 50\,\%$) prédisent
+``stress'' pour 75 à 76 des 77 fenêtres de test, indépendamment de la vraie
+étiquette (rappel stress $\approx 100\,\%$, rappel non-stress
+$\approx 0$--$4\,\%$) ; les réalisations ``hautes'' prédisent, elles, une
+répartition proche de la vraie distribution (par exemple 51~non-stress /
+26~stress, contre 52/25 réel). Il ne s'agit donc pas d'un modèle qui
+généralise un peu moins bien selon la réalisation, mais d'un basculement net
+entre une frontière de décision fonctionnelle et un effondrement complet
+vers une classe unique, un mode de défaillance connu des réseaux minuscules
+entraînés sous clipping de gradient et bruit gaussien agressifs.
+
+\paragraph{Confirmation que le bruit DP-SGD est l'unique cause~: entraînement
+de contrôle sans DP.} Pour trancher entre le bruit DP-SGD et une autre
+source de non-déterminisme possible (ordre de mélange des lots,
+ordonnancement des clients par Ray), le même entraînement (graine~31415,
+sujet~2 exclu, 30~rounds) a été rejoué 3~fois avec DP désactivé
+(\texttt{dp-enabled=false}), toutes les autres conditions restant
+identiques. Le Tableau~\ref{tab:no_dp_control} montre un résultat sans
+ambiguïté~: les 3~modèles obtenus sont \textbf{strictement identiques},
+balanced-accuracy jour~1 de $97{,}0\,\%$ dans les trois cas, distance
+euclidienne nulle entre chaque paire de vecteurs de poids. Sans bruit DP,
+l'entraînement redevient entièrement déterministe pour une graine donnée :
+l'ordonnancement Ray et l'ordre de mélange des lots, également non
+re-seedés round après round, ne contribuent donc pas de façon mesurable à
+la variance observée. Le bruit gaussien de DP-SGD est confirmé comme
+l'unique cause de la bimodalité jour~1.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Entraînement de contrôle, graine~31415, sujet~2 exclu, DP
+  désactivé (\texttt{dp-enabled=false}) : 3 réentraînements identiques.}
+  \label{tab:no_dp_control}
+  \begin{tabular}{cccc}
+    \toprule
+     & Balanced-acc. jour~1 & \multicolumn{2}{c}{Distance $L_2$ entre poids} \\
+    \midrule
+    Réentraînement~1 & $97{,}0\,\%$ & vs~2 : $0{,}0000$ & vs~3 : $0{,}0000$ \\
+    Réentraînement~2 & $97{,}0\,\%$ & vs~1 : $0{,}0000$ & vs~3 : $0{,}0000$ \\
+    Réentraînement~3 & $97{,}0\,\%$ & vs~1 : $0{,}0000$ & vs~2 : $0{,}0000$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Les résultats de fine-tuning qui suivent~: à lire comme des
+trajectoires illustratives, pas comme des propriétés fixes d'une graine.}
+Le Tableau~\ref{tab:new_joiner} et le Tableau~\ref{tab:new_joiner_per_seed}
+ci-dessous, ainsi que le diagnostic ``graines figées'' qui les accompagne,
+ont été produits \emph{avant} la vérification de reproductibilité
+ci-dessus, sur les 5 réalisations originales (une par graine nominale).
+Ce sont des trajectoires d'entraînement réelles et valides
+individuellement, mais on sait désormais qu'elles ne représentent qu'un
+tirage parmi plusieurs issues possibles pour chaque graine, pas un résultat
+que cette graine reproduirait à coup sûr. Elles restent informatives sur ce
+qui \emph{peut} arriver au cours d'un fine-tuning une fois un jour~1 donné
+obtenu, la question centrale de ce paragraphe.
 
 \begin{table}[h!]
   \centering
@@ -778,14 +886,18 @@ précisément par l'existence de fenêtres déjà suffisamment proches du seuil
 au départ pour que l'entraînement les fasse basculer une à une au fil des
 époques.
 
-\paragraph{Sujet~5 : aucune bimodalité, aucun effet du fine-tuning.} La
-réplication sur ce second sujet donne un résultat radicalement différent,
-stable du jour~1 jusqu'à l'époque~30 (Tableau~\ref{tab:new_joiner_subj5}).
-Les 5 graines convergent vers une balanced-accuracy jour~1
-\emph{identique}, $99{,}04 \pm 0{,}00\,\%$, et le fine-tuning ne change
-presque rien, que ce soit à l'époque~8 ($99{,}23 \pm 0{,}38\,\%$,
-$t=-1{,}00$, $p=0{,}37$) ou au plateau ($99{,}23 \pm 0{,}38\,\%$ également à
-l'époque~30) : ni bimodalité, ni dégradation, à aucun horizon testé.
+\paragraph{Sujet~5 : cinq réalisations stables, mais un échantillon trop
+restreint pour conclure à l'absence de bimodalité.} La réplication sur ce
+second sujet donne, sur les 5 réalisations testées, un résultat
+radicalement différent, stable du jour~1 jusqu'à l'époque~30
+(Tableau~\ref{tab:new_joiner_subj5}). Les 5 graines convergent vers une
+balanced-accuracy jour~1 \emph{identique}, $99{,}04 \pm 0{,}00\,\%$, et le
+fine-tuning ne change presque rien, que ce soit à l'époque~8 ($99{,}23 \pm
+0{,}38\,\%$, $t=-1{,}00$, $p=0{,}37$) ou au plateau ($99{,}23 \pm
+0{,}38\,\%$ également à l'époque~30) : ni bimodalité observée, ni
+dégradation, à aucun horizon testé sur cet échantillon. Comme détaillé
+ci-dessous, ceci ne permet pas encore d'exclure que le même mécanisme
+d'effondrement stochastique s'applique aussi à ce sujet.
 
 \begin{table}[h!]
   \centering
@@ -832,22 +944,42 @@ jour~1 est déjà quasi parfait sur ce sujet ($99$--$100\,\%$ de rappel sur
 les deux classes), ne laissant simplement aucune marge de progression ou de
 régression au fine-tuning.
 
-\paragraph{Ce que ça signifie.} La bimodalité observée sur le sujet~2 n'est
-donc \textbf{pas une propriété générale de l'entraînement fédéré} sur ce
-jeu de données : c'est une caractéristique propre à ce sujet précis, pas un
-phénomène qui toucherait n'importe quel nouveau bracelet. Avec seulement 2
-sujets testés, on ne peut pas encore dire ce qui rend un profil
-``difficile'' (sujet~2) plutôt que ``facile'' (sujet~5) à généraliser en
-zéro-shot ; l'hétérogénéité feature-wise mise en évidence en
-Section~\ref{subsec:label_vs_feature} (en particulier la variabilité du
-niveau tonique d'EDA d'un sujet à l'autre) est une piste plausible, non
-vérifiée directement ici.
+\textbf{Prudence méthodologique} : contrairement au sujet~2, la
+reproductibilité de ces 5 réalisations n'a \emph{pas} été vérifiée par
+réentraînement direct pour le sujet~5. Étant donné le mécanisme confirmé
+ci-dessus (un bruit DP-SGD capable de faire basculer n'importe quelle
+graine vers un effondrement, indépendamment de son identité), ces 5
+réalisations ``hautes'' ne prouvent pas que le sujet~5 est à l'abri du même
+phénomène : si son taux d'effondrement sous-jacent était, par hypothèse,
+identique à celui mesuré sur le sujet~2 ($4/20 = 20\,\%$), la probabilité
+d'observer 5 réalisations toutes ``hautes'' par pur hasard serait
+$0{,}8^5 \approx 33\,\%$, un tirage tout à fait plausible avec seulement 5
+essais. La stabilité apparente du sujet~5 est donc compatible aussi bien
+avec un profil réellement plus robuste qu'avec un échantillon de 5
+réalisations qui n'a simplement pas fait apparaître l'effondrement.
 
-\textbf{Limite à garder à l'esprit} : ce résultat repose sur seulement deux
-sujets exclus. C'est un cas illustratif, pas un résultat généralisable à
-l'ensemble des 15 sujets ; en particulier, rien ne garantit que ces deux
-profils (l'un bimodal, l'autre stable) couvrent l'ensemble des
-comportements possibles pour un sujet réellement nouveau.
+\paragraph{Ce que ça signifie.} Le \emph{mécanisme} de la bimodalité
+jour~1 est désormais établi comme une propriété générale de l'entraînement
+DP-SGD sur ce modèle minuscule (Tableau~\ref{tab:seed_variance},
+Tableau~\ref{tab:no_dp_control}), pas une caractéristique propre au
+sujet~2. Ce qui reste ouvert, avec seulement un sujet ayant fait l'objet
+d'une caractérisation complète sur 20 réalisations, c'est de savoir si le
+\emph{taux} d'effondrement ($\approx 20\,\%$ pour le sujet~2) varie d'un
+sujet exclu à l'autre, potentiellement lié à l'hétérogénéité feature-wise
+mise en évidence en Section~\ref{subsec:label_vs_feature} (en particulier
+la variabilité du niveau tonique d'EDA d'un sujet à l'autre) : une piste
+plausible, non vérifiée directement ici, et que l'argument de probabilité
+ci-dessus empêche de trancher avec les seules 5 réalisations disponibles
+pour le sujet~5.
+
+\textbf{Limite à garder à l'esprit} : le taux d'effondrement de $20\,\%$
+n'a été mesuré rigoureusement (20 réalisations indépendantes) que pour un
+seul sujet exclu (sujet~2). Le sujet~5 n'a été testé que sur 5 réalisations,
+insuffisant pour distinguer un profil réellement plus stable d'un simple
+tirage favorable. Généraliser un taux d'effondrement précis à l'ensemble
+des 15 sujets, ou conclure qu'un profil physiologique donné est
+``protégé'' de ce phénomène, nécessiterait de répéter cette caractérisation
+à 20 réalisations sur chaque sujet exclu testé.
 
 \section{Discussion}
 \label{sec:discussion}
@@ -906,37 +1038,47 @@ locales disponibles par sujet, limitant le risque de sur-apprentissage qui
 affecterait une tête plus grande ou un réseau personnalisé dans son
 ensemble.
 
-\subsection{Le scénario du nouveau bracelet : une généralisation zéro-shot
-qui dépend du sujet, un fine-tuning non régularisé au bénéfice non garanti}
+\subsection{Le scénario du nouveau bracelet : une bimodalité stochastique
+confirmée, pas un effet de la graine, un fine-tuning non régularisé au
+bénéfice non garanti}
 
-Le résultat du scénario nouveau bracelet éclaire deux aspects distincts,
+Le résultat du scénario nouveau bracelet éclaire trois aspects distincts,
 qu'il convient de ne pas confondre. Premièrement, la généralisation
-``zéro-shot'' du modèle global à un sujet jamais vu \textbf{dépend
-fortement du sujet exclu, pas d'une propriété générale de l'entraînement
-fédéré} (Section~\ref{subsec:new_joiner}) : pour le sujet~2, la performance
-jour~1 est bimodale selon la graine ($\approx 97\,\%$ pour certaines
-initialisations, $\approx 50\,\%$ pour d'autres) ; pour le sujet~5, elle est
-au contraire remarquablement stable et élevée sur les 5 graines
-($99{,}04 \pm 0{,}00\,\%$). Ceci suggère que la difficulté de généralisation
-zéro-shot est une propriété du \emph{profil physiologique du sujet exclu}
-(possiblement lié à l'hétérogénéité feature-wise de
-Section~\ref{subsec:label_vs_feature}), pas de l'entraînement fédéré en
-tant que tel ; avec seulement 2 sujets testés, cette explication reste une
-piste, pas une conclusion établie. Deuxièmement, le fine-tuning post-hoc
-testé ici n'a \emph{aucun} des garde-fous dont bénéficie FedPer pendant
+``zéro-shot'' du modèle global à un sujet jamais vu peut, pour le sujet~2,
+\textbf{s'effondrer vers une prédiction quasi constante ``stress'' dans
+$\approx 20\,\%$ des entraînements}, un phénomène caractérisé sur 20
+réalisations indépendantes et confirmé, par un entraînement de contrôle
+sans DP produisant des poids strictement identiques, comme entièrement
+imputable au bruit gaussien de DP-SGD, pas à la valeur nominale de la
+graine de partition ni à un autre non-déterminisme du pipeline
+(Section~\ref{subsec:new_joiner}). Deuxièmement, ce taux d'effondrement
+n'a été mesuré aussi rigoureusement que sur un seul sujet exclu : le
+sujet~5 affiche 5 réalisations toutes ``hautes'' ($99{,}04 \pm
+0{,}00\,\%$), mais un calcul de probabilité simple
+(Section~\ref{subsec:new_joiner}) montre que ce résultat serait obtenu
+environ 1~fois sur 3 par pur hasard même si le sujet~5 partageait le même
+taux d'effondrement sous-jacent que le sujet~2 ; on ne peut donc pas encore
+conclure que le profil physiologique du sujet exclu module ce taux
+(hypothèse plausible, éventuellement liée à l'hétérogénéité feature-wise de
+Section~\ref{subsec:label_vs_feature}), faute d'un échantillon
+suffisant sur le sujet~5. Troisièmement, le fine-tuning post-hoc testé ici
+n'a \emph{aucun} des garde-fous dont bénéficie FedPer pendant
 l'entraînement fédéré (le terme proximal de FedProx et le bruit DP-SGD
 agissant comme régularisation implicite sur l'extracteur partagé,
 Section~\ref{subsec:fedper}) : c'est un entraînement purement local, sans
 ancrage au modèle global, sur un jeu de données minuscule ($\approx 316$
-fenêtres). Statistiquement, ce fine-tuning non régularisé n'apporte ni
-gain ni perte fiable en moyenne sur le sujet~2 (5 graines testées), mais
-peut faire chuter substantiellement une graine initialement bien calibrée
-(Tableau~\ref{tab:new_joiner_per_seed}, graine~42) ; sur le sujet~5, il ne
-change quasiment rien, la performance jour~1 étant déjà proche du plafond.
-Ceci suggère qu'un fine-tuning local, pour être utilisé sans risque en
-pratique, gagnerait à intégrer un garde-fou explicite (terme proximal ancré
-au modèle global, ou arrêt anticipé sur un jeu de validation dédié), plutôt
-que d'être laissé courir un nombre d'époques fixe sans surveillance.
+fenêtres). Statistiquement, sur les 5 trajectoires originales testées
+(Tableau~\ref{tab:new_joiner_per_seed}, à lire comme des illustrations
+individuelles et non reproductibles à l'identique, voir
+Section~\ref{subsec:new_joiner}), ce fine-tuning non régularisé n'apporte
+ni gain ni perte fiable en moyenne sur le sujet~2, mais peut faire chuter
+substantiellement une trajectoire initialement bien calibrée ; sur le
+sujet~5, il ne change quasiment rien, la performance jour~1 étant déjà
+proche du plafond. Ceci suggère qu'un fine-tuning local, pour être utilisé
+sans risque en pratique, gagnerait à intégrer un garde-fou explicite (terme
+proximal ancré au modèle global, ou arrêt anticipé sur un jeu de validation
+dédié), plutôt que d'être laissé courir un nombre d'époques fixe sans
+surveillance.
 
 \section{Limites et travaux futurs}
 \label{sec:limits}
@@ -1005,16 +1147,24 @@ que d'être laissé courir un nombre d'époques fixe sans surveillance.
   comparaisons FL-vs-FL (25 valeurs), illustré par le cas de l'AUC
   FedPer-vs-Centralisé (Section~\ref{sec:results}), où l'effet est large mais
   non significatif.
-  \item \textbf{Scénario du nouveau bracelet limité à deux sujets.} Un
-  résultat illustratif sur 5 graines chacun (Section~\ref{subsec:new_joiner}),
-  pas une conclusion généralisable à l'ensemble des profils physiologiques
-  possibles ; les deux sujets testés montrent des comportements jour-1
-  opposés (bimodal pour l'un, stable pour l'autre), sans qu'on puisse encore
-  identifier ce qui distingue les deux profils.
+  \item \textbf{Taux d'effondrement jour-1 caractérisé sur un seul sujet.}
+  La bimodalité stochastique du jour-1 (Section~\ref{subsec:new_joiner}) est
+  établie comme un mécanisme général de l'entraînement DP-SGD sur ce modèle
+  (confirmé par l'entraînement de contrôle sans DP), mais son \emph{taux}
+  précis ($\approx 20\,\%$) n'a été mesuré rigoureusement (20 réalisations)
+  que pour le sujet~2 ; le sujet~5, testé sur seulement 5 réalisations, ne
+  permet pas de trancher si son apparente stabilité reflète un profil
+  réellement plus robuste ou un tirage favorable ($\approx 33\,\%$ de
+  chances d'observer 5/5 réalisations hautes par hasard sous le même taux
+  que le sujet~2). Caractériser ce taux sur les 15 sujets nécessiterait de
+  répéter l'étude à 20 réalisations sur chacun.
   \item \textbf{Fine-tuning local non régularisé, à améliorer.} Le
-  fine-tuning post-hoc testé (Section~\ref{subsec:new_joiner}) n'apporte pas
-  de gain fiable en moyenne ($p=0{,}42$) et peut faire chuter substantiellement
-  une graine initialement bien calibrée, faute de tout mécanisme de
+  fine-tuning post-hoc testé (Section~\ref{subsec:new_joiner}) porte sur des
+  trajectoires individuelles non reproductibles à l'identique (une par
+  graine nominale, avant la découverte de la variance jour-1) ; sur celles
+  testées, il n'apporte pas de gain fiable en moyenne ($p=0{,}42$) et peut
+  faire chuter substantiellement une trajectoire initialement bien calibrée,
+  faute de tout mécanisme de
   régularisation ou de critère d'arrêt. Un fine-tuning avec un terme
   proximal ancré au modèle global, un arrêt anticipé sur un jeu de
   validation dédié, ou un taux d'apprentissage plus faible constituent des
