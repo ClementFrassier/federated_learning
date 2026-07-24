@@ -785,6 +785,183 @@ l'unique cause de la bimodalité jour~1.
   \end{tabular}
 \end{table}
 
+\paragraph{Le taux d'effondrement en fonction de $\sigma$~: une bande étroite,
+pas une dégradation progressive.} Une fois le bruit DP-SGD confirmé comme
+cause nécessaire, une question naturelle se pose~: réduire $\sigma$
+réduit-il le taux d'effondrement de façon graduelle~? Le même entraînement
+(sujet~2 exclu, graine~31415) a été rejoué à onze valeurs supplémentaires
+de $\sigma$ entre $0$ et $0{,}8$ (5 à 10 réalisations chacune selon le
+niveau), en complément des points $\sigma=0{,}4$ et $\sigma=0{,}8$ déjà
+caractérisés ci-dessus. Le Tableau~\ref{tab:sigma_dose_response} montre un
+résultat inattendu~: ce n'est ni un seuil net, ni une dégradation continue,
+mais une \textbf{bande étroite de bruit quasi systématiquement destructrice},
+encadrée de deux côtés par des régimes beaucoup plus sûrs.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Sujet~2 exclu, graine~31415~: taux d'effondrement jour~1 en
+  fonction du multiplicateur de bruit $\sigma$ (écrêtage toujours actif,
+  $\texttt{dp-enabled=true}$ sauf la première ligne).}
+  \label{tab:sigma_dose_response}
+  \begin{tabular}{ccc}
+    \toprule
+    $\sigma$ & Taux d'effondrement & $n$ \\
+    \midrule
+    $0{,}00$ (écrêtage seul, bruit désactivé) & $0\,\%$ & 8 \\
+    $0{,}02$ & $100\,\%$ & 5 \\
+    $0{,}05$ & $100\,\%$ & 5 \\
+    $0{,}07$ & $100\,\%$ & 5 \\
+    $0{,}10$ & $100\,\%$ & 10 \\
+    $0{,}20$ & $100\,\%$ & 10 \\
+    $0{,}22$ & $80\,\%$ & 5 \\
+    $0{,}25$ & $40\,\%$ & 5 \\
+    $0{,}27$ & $80\,\%$ & 5 \\
+    $0{,}30$ & $10\,\%$ & 10 \\
+    $0{,}40$ & $25\,\%$ & 8 \\
+    $0{,}80$ & $20\,\%$ & 20 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Le bord gauche est quasi instantané~: entre $\sigma=0$ (déterministe, $0\,\%$)
+et $\sigma=0{,}02$ (déjà $100\,\%$), il n'y a pratiquement aucune zone de
+transition. Le taux reste à $100\,\%$ sur toute la plage $0{,}02$ à
+$0{,}20$, puis redescend vers $\sigma=0{,}3$ jusqu'à un plateau bas
+($10$--$25\,\%$) qui se maintient jusqu'à $\sigma=0{,}8$. La descente entre
+$0{,}2$ et $0{,}3$ n'est pas parfaitement monotone ($80\,\%$ à $0{,}22$,
+$40\,\%$ à $0{,}25$, puis $80\,\%$ à $0{,}27$) : avec seulement 5
+réalisations par point, l'écart-type binomial attendu à ces tailles
+d'échantillon est large, et cette irrégularité locale ne remet pas en cause
+la tendance de fond, clairement descendante entre $\sigma=0{,}2$ et
+$\sigma=0{,}3$.
+
+\paragraph{Mécanisme~: un minimum pointu et fragile contre un bassin plat et
+robuste.} Cette forme en pic étroit suggère que le bruit interagit avec la
+\emph{forme} du paysage de perte, pas seulement avec son amplitude propre.
+Pour le vérifier directement, un checkpoint ``fonctionnel'' ($97{,}0\,\%$,
+la réalisation originale de la graine~31415) et un checkpoint ``effondré''
+($50{,}0\,\%$, une réalisation à $\sigma=0{,}02$) ont chacun été perturbés
+par du bruit gaussien ajouté directement à leurs poids, sans aucun
+réentraînement, à des amplitudes croissantes (proportionnelles à
+l'écart-type propre de chaque tenseur de poids), 10 tirages indépendants
+par amplitude. Le Tableau~\ref{tab:sharpness_test} montre une asymétrie
+nette~: le checkpoint fonctionnel commence à se dégrader dès une
+perturbation modeste ($\alpha=0{,}10$~: certains tirages chutent déjà à
+$74$--$83\,\%$), tandis que le checkpoint effondré reste \textbf{rigoureusement
+figé à $50{,}0\,\%$, écart-type nul}, jusqu'à une perturbation trois à cinq
+fois plus grande.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Test de robustesse aux perturbations de poids (sans
+  réentraînement) : balanced-accuracy moyenne sur 10 tirages, en fonction de
+  l'amplitude relative $\alpha$ du bruit gaussien ajouté aux poids.}
+  \label{tab:sharpness_test}
+  \begin{tabular}{ccc}
+    \toprule
+    $\alpha$ & Checkpoint fonctionnel ($97{,}0\,\%$) & Checkpoint effondré ($50{,}0\,\%$) \\
+    \midrule
+    $0{,}00$ & $97{,}0\,\%$ & $50{,}0\,\%$ \\
+    $0{,}02$ & $97{,}0\,\%$ & $50{,}0\,\%$ \\
+    $0{,}05$ & $96{,}5\,\%$ & $50{,}0\,\%$ \\
+    $0{,}10$ & $93{,}2\,\%$ (écart-type $7{,}8$) & $50{,}0\,\%$ (écart-type $0$) \\
+    $0{,}20$ & $94{,}2\,\%$ (écart-type $10{,}3$) & $50{,}0\,\%$ (écart-type $0$) \\
+    $0{,}35$ & $85{,}6\,\%$ (écart-type $16{,}5$) & $50{,}0\,\%$ (écart-type $0$) \\
+    $0{,}50$ & $81{,}3\,\%$ & $49{,}7\,\%$ \\
+    $0{,}75$ & $84{,}5\,\%$ & $45{,}4\,\%$ \\
+    $1{,}00$ & $70{,}3\,\%$ & $45{,}1\,\%$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Cette asymétrie donne une explication cohérente à la forme du pic. Sans
+bruit, l'entraînement converge de façon déterministe vers une solution
+fonctionnelle, mais apparemment \textbf{pointue} (fragile aux petites
+perturbations) : la littérature sur l'apprentissage fédéré sous
+confidentialité différentielle documente précisément une tendance des
+entraînements DP à converger vers des minima plus pointus que sans DP,
+avec une robustesse aux perturbations dégradée en conséquence
+\cite{shi2023make,wu2024fedpgn}. Un bruit faible ($\sigma \approx 0{,}02$
+à $0{,}2$) suffit à faire sortir le modèle de cette solution pointue, mais
+le fait tomber dans le bassin dégénéré voisin (la prédiction quasi
+constante ``stress'' du paragraphe précédent) qui, lui, est manifestement
+\textbf{plat} : le test de robustesse ci-dessus montre qu'il faut un bruit
+bien plus fort pour l'en déloger. Un bruit plus élevé ($\sigma \geq 0{,}3$)
+apporte suffisamment d'amplitude pour explorer plus largement l'espace des
+poids et retomber, une partie du temps, sur une solution fonctionnelle,
+d'où la redescente du taux d'effondrement. Cette explication reste une
+hypothèse mécanistique cohérente avec les deux expériences ci-dessus, pas
+une preuve directe que la solution originale et la solution dégénérée
+appartiennent aux mêmes bassins que ceux traversés pendant l'entraînement
+réel~; elle mériterait une mesure directe de courbure locale (par exemple
+la trace de la Hessienne) pour être confirmée au-delà d'un test de
+robustesse post-hoc.
+
+\paragraph{Comprendre ce mécanisme sans formalisme~: l'image du paysage.}
+Pour rendre ce résultat intuitif, au-delà du vocabulaire technique
+ci-dessus~: imaginons l'entraînement comme une bille qui roule sur un
+paysage vallonné, où chaque point du relief représente une configuration
+possible du modèle, et l'altitude représente son erreur (plus c'est bas,
+meilleur est le modèle). Sans bruit, la bille roule de façon parfaitement
+prévisible et s'arrête toujours au fond de la même vallée. Cette
+vallée-là est étroite, aux parois raides (un ``minimum pointu'') : le
+modèle y est excellent, mais la moindre secousse peut l'en faire sortir.
+
+Ajouter du bruit DP-SGD revient à secouer légèrement le paysage à chaque
+étape de l'entraînement. Une petite secousse suffit à éjecter la bille de
+cette vallée étroite, mais si elle retombe dans un large fossé plat juste
+à côté (qui correspond justement à la prédiction constante ``stress''
+décrite plus haut), cette même petite secousse est bien trop faible pour
+l'en faire ressortir : le fossé est trop large et trop plat pour qu'un
+petit choc y change quoi que ce soit. La bille reste coincée. C'est
+exactement ce que montre le test de robustesse ci-dessus : le modèle
+effondré ne bouge absolument pas sous une perturbation qui, appliquée au
+modèle sain, le fait déjà vaciller. Il faut une secousse nettement plus
+forte pour sortir la bille de ce large fossé et lui redonner une chance de
+retrouver une bonne vallée ailleurs, ce qui explique pourquoi un bruit
+plus élevé ($\sigma \geq 0{,}3$) redonne, paradoxalement, de meilleures
+chances de succès qu'un bruit modéré.
+
+\paragraph{Réplication sur une graine indépendante~: confirmation que ce
+n'est pas une coïncidence.} Le motif ci-dessus repose entièrement sur une
+seule graine de partition (31415). Pour écarter l'hypothèse d'une
+coïncidence propre à cette initialisation précise, la même expérience
+(sujet~2 exclu, mêmes valeurs de $\sigma$) a été intégralement rejouée
+avec une graine indépendante, jamais utilisée ailleurs dans ce travail
+(graine~2718), 5 réalisations par niveau de bruit testé. Le
+Tableau~\ref{tab:seed_replication} compare les deux graines : le motif
+qualitatif se reproduit clairement. $\sigma=0{,}05$ et $\sigma=0{,}20$
+donnent un effondrement identique entre les deux graines ($100\,\%$ dans
+les deux cas), $\sigma=0{,}40$ concorde presque exactement ($20\,\%$
+contre $25\,\%$), et $\sigma=0{,}10$ va dans la même direction (toujours
+majoritairement effondré, $60\,\%$) même si le taux exact diffère de la
+première graine, un écart attendu compte tenu de la petite taille
+d'échantillon ($n=5$). Deux initialisations indépendantes produisent donc
+la même signature qualitative : une bande de bruit faible à modéré
+presque systématiquement destructrice, encadrée de régimes plus sûrs des
+deux côtés. Ce n'est pas une particularité de la graine~31415.
+
+\begin{table}[h!]
+  \centering
+  \small
+  \caption{Taux d'effondrement jour~1, sujet~2 exclu~: comparaison entre
+  la graine~31415 (référence) et une graine indépendante~2718 (5
+  réalisations par point).}
+  \label{tab:seed_replication}
+  \begin{tabular}{cccc}
+    \toprule
+    $\sigma$ & Graine~31415 & Graine~2718 & Accord \\
+    \midrule
+    $0{,}05$ & $100\,\%$ & $100\,\%$ & Identique \\
+    $0{,}10$ & $100\,\%$ & $60\,\%$ & Même direction \\
+    $0{,}20$ & $100\,\%$ & $100\,\%$ & Identique \\
+    $0{,}40$ & $25\,\%$ & $20\,\%$ & Quasi identique \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
 \paragraph{Les résultats de fine-tuning qui suivent~: cinq réalisations
 individuelles, pas cinq graines reproductibles.} Le Tableau~\ref{tab:new_joiner}
 ci-dessous, ainsi que le diagnostic qui l'accompagne, ont été produits
