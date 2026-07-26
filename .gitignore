@@ -7,10 +7,10 @@ __pycache__/
 *.pyo
 *.pyd
 
-# Jupyter Notebooks (au cas où)
+# Jupyter Notebooks (in case one gets used)
 .ipynb_checkpoints/
 
-# Flower SQLite state and logs (si utilisation ultérieure)
+# Flower SQLite state and logs (in case this gets used later)
 .flwr/
 state.db
 

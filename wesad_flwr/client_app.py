@@ -97,10 +97,10 @@ def _get_or_init_privacy_engine(
     return _privacy_engines[cache_key]
 
 
-# ── FedRep+SCAFFOLD: tête multi-couches + DP restreint à l'extracteur ────────
-# Architecture "meilleure possible hors contrainte TinyML, contraintes de
-# sécurité seules" (voir rapport). Chemin d'exécution entièrement séparé du
-# FedProx/FedPer ci-dessus, pour ne rien risquer sur les résultats déjà validés.
+# ── FedRep+SCAFFOLD: multi-layer head + DP restricted to the extractor ───────
+# Architecture aiming for the best result achievable outside the TinyML
+# constraint, security constraints only. Execution path entirely separate
+# from FedProx/FedPer above, so it risks nothing on already-validated results.
 CV_PREFIX = "cv__"
 
 
@@ -381,9 +381,9 @@ def train(msg: Message, context: Context) -> Message:
     personalization_mode = context.run_config.get("personalization-mode", "none")
 
     if personalization_mode == "fedrep_scaffold":
-        # Chemin d'exécution entièrement séparé — le code FedProx/FedPer
-        # ci-dessous n'est jamais atteint pour ce mode. _train_fedrep_scaffold
-        # gère son propre tracemalloc.start()/stop().
+        # Entirely separate execution path: the FedProx/FedPer code below is
+        # never reached in this mode. _train_fedrep_scaffold manages its own
+        # tracemalloc.start()/stop().
         return _train_fedrep_scaffold(msg, context, node_id, start_time)
 
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
@@ -501,8 +501,8 @@ def train(msg: Message, context: Context) -> Message:
     metrics = {
         "fit_time":            float(fit_time),
         "peak_ram_mb":         float(peak_ram_train_mb),    # backwards compat: training-only RAM
-        "peak_ram_train_mb":   float(peak_ram_train_mb),    # stable ~20 Mo, σ-independent
-        "peak_ram_epsilon_mb": float(peak_ram_epsilon_mb),  # PRV spike, σ-dependent (26–96 Mo)
+        "peak_ram_train_mb":   float(peak_ram_train_mb),    # stable ~20 MB, sigma-independent
+        "peak_ram_epsilon_mb": float(peak_ram_epsilon_mb),  # PRV spike, sigma-dependent (26-96 MB)
         "comm_size_mb":        float(comm_size_mb),
         "model_size_mb":       float(get_model_size(_underlying_module(net_dp))),
         "dp_epsilon":          float(dp_epsilon),
