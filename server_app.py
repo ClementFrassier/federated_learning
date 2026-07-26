@@ -84,9 +84,9 @@ app = ServerApp()
 def main(grid: Grid, context: Context) -> None:
     num_rounds  = int(context.run_config.get("num-server-rounds", 10))
 
-    # Initialise global model — server only tracks non-GN layers (FedBN)
+    # Initialise global model -- server only tracks non-BN layers (FedBN)
     global_model  = Net()
-    global_params = {k: v.cpu() for k, v in global_model.state_dict().items() if "gn" not in k}
+    global_params = {k: v.cpu() for k, v in global_model.state_dict().items() if "bn" not in k}
     arrays = ArrayRecord(torch_state_dict=global_params)
 
     strategy = FedAvg(

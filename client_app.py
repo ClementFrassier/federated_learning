@@ -16,8 +16,8 @@ from task import load_data, load_model, train, test, get_model_size, DEVICE
 app = ClientApp()
 
 # ── Per-client persistent state (context.state) ────────────────────────────────
-# Local models with their personal GroupNorm layers must live across rounds.
-# We store them in context.state as "gn_weights" (an ArrayRecord) to persist
+# Local models with their personal BatchNorm layers must live across rounds.
+# We store them in context.state as "bn_weights" (an ArrayRecord) to persist
 # across different stateless Ray worker processes/actors.
 
 
@@ -28,10 +28,10 @@ def train_handler(msg: Message, context: Context) -> Message:
 
     Workflow
     --------
-    1. Receive global weights (non-GN layers only) from the server.
-    2. Inject them into the local model — GN layers remain local (FedBN).
+    1. Receive global weights (non-BN layers only) from the server.
+    2. Inject them into the local model -- BN layers remain local (FedBN).
     3. Train with standard SGD (no proximal term, no DP).
-    4. Return only non-GN weights + KPI metrics.
+    4. Return only non-BN weights + KPI metrics.
     """
     start_time = time.time()
     tracemalloc.start()
@@ -56,20 +56,21 @@ def train_handler(msg: Message, context: Context) -> Message:
         batch_size=batch_size, alpha=alpha, seed=seed,
     )
 
-    # 3. Instantiate fresh model and load local GN weights if present in context.state
+    # 3. Instantiate fresh model and load local BN weights if present in context.state
     net = load_model()
     local_state = net.state_dict()
 
-    # Load persistent GroupNorm layers from context.state
-    has_persisted_gn = "gn_weights" in context.state
-    if has_persisted_gn:
-        gn_params = context.state["gn_weights"].to_torch_state_dict()
-        for k, v in gn_params.items():
+    # Load persistent BatchNorm layers (weight, bias, running_mean, running_var)
+    # from context.state
+    has_persisted_bn = "bn_weights" in context.state
+    if has_persisted_bn:
+        bn_params = context.state["bn_weights"].to_torch_state_dict()
+        for k, v in bn_params.items():
             local_state[k] = v.to(DEVICE)
 
-    # Inject server weights into non-GN layers only (FedBN: GN stays local)
+    # Inject server weights into non-BN layers only (FedBN: BN stays local)
     for k in local_state:
-        if "gn" not in k and k in incoming_state_dict:
+        if "bn" not in k and k in incoming_state_dict:
             local_state[k] = incoming_state_dict[k].to(DEVICE)
     net.load_state_dict(local_state, strict=True)
 
@@ -77,14 +78,14 @@ def train_handler(msg: Message, context: Context) -> Message:
     # 4. Train
     train(net, trainloader, epochs=epochs, lr=lr, momentum=momentum)
 
-    # 5. Persist the updated local GroupNorm weights back to context.state
-    gn_params = {k: v.cpu() for k, v in net.state_dict().items() if "gn" in k}
-    context.state["gn_weights"] = ArrayRecord(torch_state_dict=gn_params)
+    # 5. Persist the updated local BatchNorm weights back to context.state
+    bn_params = {k: v.cpu() for k, v in net.state_dict().items() if "bn" in k}
+    context.state["bn_weights"] = ArrayRecord(torch_state_dict=bn_params)
 
-    # 6. Return only non-GN weights (server aggregates only these)
+    # 6. Return only non-BN weights (server aggregates only these)
     state_to_return = {
         k: v.cpu() for k, v in net.state_dict().items()
-        if "gn" not in k
+        if "bn" not in k
     }
     model_record = ArrayRecord(torch_state_dict=state_to_return)
 
@@ -121,7 +122,7 @@ def evaluate(msg: Message, context: Context) -> Message:
     """Three-level evaluation: global FP32 / local FP32 / local INT8 (TinyML proxy).
 
     acc_global     : global model accuracy (no local FedBN adaptation)
-    acc_local_fp32 : local model accuracy  (with local GN layers — FedBN personalisation gain)
+    acc_local_fp32 : local model accuracy  (with local BN layers -- FedBN personalisation gain)
     quantization_error: accuracy drop from INT8 dynamic quantisation
     """
     start_time = time.time()
@@ -133,7 +134,7 @@ def evaluate(msg: Message, context: Context) -> Message:
     alpha       = float(rc.get("alpha", 0.0))
     seed        = int(rc.get("partition-seed", 42))
 
-    # Receive server weights (non-GN only)
+    # Receive server weights (non-BN only)
     incoming_state_dict = msg.content["arrays"].to_torch_state_dict()
 
     # Load testing data statelessly
@@ -142,30 +143,34 @@ def evaluate(msg: Message, context: Context) -> Message:
         batch_size=batch_size, alpha=alpha, seed=seed,
     )
 
-    # EVAL 1 — Global model: inject server weights into a fresh model
-    #   (fresh model has random GN weights → purely global performance)
+    # EVAL 1 -- Global model: inject server weights into a fresh model
+    #   (fresh model has default, uncalibrated running_mean=0/running_var=1
+    #   BN statistics, since those buffers are exactly what FedBN keeps local
+    #   and never sends to the server; acc_global therefore reflects this
+    #   real BatchNorm limitation, not a bug, and can look worse than a
+    #   GroupNorm-based FedBN variant with no running statistics at all)
     model_global = load_model()
     global_state = model_global.state_dict()
     for k in global_state:
-        if "gn" not in k and k in incoming_state_dict:
+        if "bn" not in k and k in incoming_state_dict:
             global_state[k] = incoming_state_dict[k].to(DEVICE)
     model_global.load_state_dict(global_state, strict=True)
 
-    # EVAL 2 — Local model: inject server weights into the TRAINED model
-    #   (keeps locally-trained GN weights → FedBN personalisation benefit)
+    # EVAL 2 -- Local model: inject server weights into the TRAINED model
+    #   (keeps locally-trained BN weights -> FedBN personalisation benefit)
     model_local = load_model()
     local_state = model_local.state_dict()
 
-    # Load persistent GroupNorm layers from context.state
-    has_persisted_gn = "gn_weights" in context.state
-    if has_persisted_gn:
-        gn_params = context.state["gn_weights"].to_torch_state_dict()
-        for k, v in gn_params.items():
+    # Load persistent BatchNorm layers from context.state
+    has_persisted_bn = "bn_weights" in context.state
+    if has_persisted_bn:
+        bn_params = context.state["bn_weights"].to_torch_state_dict()
+        for k, v in bn_params.items():
             local_state[k] = v.to(DEVICE)
 
-    # Inject server weights into non-GN layers
+    # Inject server weights into non-BN layers
     for k in local_state:
-        if "gn" not in k and k in incoming_state_dict:
+        if "bn" not in k and k in incoming_state_dict:
             local_state[k] = incoming_state_dict[k].to(DEVICE)
     model_local.load_state_dict(local_state, strict=True)
 

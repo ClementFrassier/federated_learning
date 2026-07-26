@@ -1,14 +1,14 @@
 # Flower v2 - FedBN Only
 
 This repository contains a **Federated Learning** simulation utilizing the **Flower v2** architecture (`ClientApp` / `ServerApp`). 
-This version implements **FedBN** only, using standard **FedAvg** strategy and keeping the GroupNorm layers local to each client.
+This version implements **FedBN** only, using standard **FedAvg** strategy and keeping the real BatchNorm layers (weight, bias, running_mean, running_var) local to each client. There is no differential privacy on this branch, which is what makes a genuine BatchNorm layer usable here in the first place: Opacus refuses to train a model containing BatchNorm, since its cross-sample statistics break the per-example gradient isolation DP-SGD requires.
 
 ## Architecture
 
 This version isolates FedBN behavior:
-- **`task.py`**: Defines the PyTorch CNN `Net` with `GroupNorm` (for FedBN). Implements the standard local training loop (SGD) and evaluation.
-- **`client_app.py`**: A `ClientApp` using `@app.train` and `@app.evaluate`. It exchanges `Message` payloads, filtering out GroupNorm weights from global synchronization. Computes CPU time, RAM (`tracemalloc`), quantization error, and communication size, returning them to the server via `MetricRecord`.
-- **`server_app.py`**: A `ServerApp` using `@app.main`. Employs the `FedAvg` aggregation strategy to aggregate non-GN client weights, and aggregates all custom KPIs into the `results_fedbn-only.csv` logger.
+- **`task.py`**: Defines the PyTorch CNN `Net` with `BatchNorm2d` (for FedBN). Implements the standard local training loop (SGD) and evaluation.
+- **`client_app.py`**: A `ClientApp` using `@app.train` and `@app.evaluate`. It exchanges `Message` payloads, filtering out BatchNorm weights (and running statistics) from global synchronization. Computes CPU time, RAM (`tracemalloc`), quantization error, and communication size, returning them to the server via `MetricRecord`.
+- **`server_app.py`**: A `ServerApp` using `@app.main`. Employs the `FedAvg` aggregation strategy to aggregate non-BN client weights, and aggregates all custom KPIs into the `results_fedbn-only.csv` logger.
 - **`pyproject.toml`**: Stores dependencies (including `flwr`) and hyperparameter configurations.
 
 ## Requirements

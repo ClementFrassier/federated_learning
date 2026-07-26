@@ -15,27 +15,27 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 class Net(nn.Module):
-    """CNN for FashionMNIST (1-channel, 28×28).
-    GroupNorm layers replace BatchNorm for:
-    - FedBN-style local normalisation (GN weights are never sent to the server).
+    """CNN for FashionMNIST (1-channel, 28x28).
+    FedBN: BatchNorm layers (weight, bias, and their running_mean/running_var
+    statistics) stay local to each client and are never sent to the server.
     """
 
     def __init__(self) -> None:
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(1, 6, 5)
-        # GroupNorm: local to each client — never aggregated by the server
-        self.gn1   = nn.GroupNorm(num_groups=2, num_channels=6)
+        # BatchNorm: local to each client, never aggregated by the server
+        self.bn1   = nn.BatchNorm2d(6)
         self.pool  = nn.MaxPool2d(2, 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
-        self.gn2   = nn.GroupNorm(num_groups=4, num_channels=16)
-        # FashionMNIST 28×28 → after 2×(conv5 + pool2) → 4×4
+        self.bn2   = nn.BatchNorm2d(16)
+        # FashionMNIST 28x28 -> after 2x(conv5 + pool2) -> 4x4
         self.fc1 = nn.Linear(16 * 4 * 4, 120)
         self.fc2 = nn.Linear(120, 84)
         self.fc3 = nn.Linear(84, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.pool(F.relu(self.gn1(self.conv1(x))))
-        x = self.pool(F.relu(self.gn2(self.conv2(x))))
+        x = self.pool(F.relu(self.bn1(self.conv1(x))))
+        x = self.pool(F.relu(self.bn2(self.conv2(x))))
         x = torch.flatten(x, 1)
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
