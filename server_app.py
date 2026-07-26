@@ -17,7 +17,7 @@ class MetricLogger:
     def __init__(self):
         self.fit_round  = 1
         self.eval_round = 1
-        # Créer le dossier et reset le CSV au démarrage
+        # Create the directory and reset the CSV at startup
         os.makedirs(CSV_DIR, exist_ok=True)
         if os.path.isfile(CSV_FILE):
             os.remove(CSV_FILE)
