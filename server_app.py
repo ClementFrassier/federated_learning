@@ -9,7 +9,7 @@ from task import load_model
 
 # ── CSV logger ────────────────────────────────────────────────────────────────
 CSV_DIR  = "resultsfeat"
-CSV_FILE = os.path.join(CSV_DIR, "results_ditto-FedYogi-sdp-secAgg-sparse.csv")
+CSV_FILE = os.path.join(CSV_DIR, "results_ditto-FedYogi-sdp-sparse.csv")
 
 
 class MetricLogger:

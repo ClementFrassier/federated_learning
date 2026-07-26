@@ -1,20 +1,30 @@
-# Federated Learning — Ditto + FedYogi + Stepwise-DP + SecAgg + Sparse
+# Federated Learning: Ditto + FedYogi + Stepwise-DP + Sparse
 
 Production-ready Federated Learning simulation built on **Flower v2** (`ServerApp` / `ClientApp`), trained on **FashionMNIST**.
-Branch: `feat/ditto-FedYogi-sdp-secAgg-sparse`
+Branch: `feat/ditto-FedYogi-sdp-sparse`
+
+**Note on Secure Aggregation:** this branch was previously named
+`feat/ditto-FedYogi-sdp-secAgg-sparse`, but no SecAgg code was ever
+present. Flower's native SecAgg+ protocol (`SecAggPlusWorkflow` /
+`secaggplus_mod`) only exists for the legacy `NumPyClient` / `Workflow`
+/ `Driver` API (verified directly against the installed `flwr==1.29.0`:
+`flwr.serverapp.strategy` and `flwr.clientapp.mod` expose no SecAgg
+equivalent). It is not available for the message-passing `ServerApp` /
+`ClientApp` API (`@app.train()`, `strategy.start()`) used throughout
+this branch and the rest of this repository, so the branch was renamed
+rather than claim a feature that cannot actually run here.
 
 ## Architecture
 
-This project implements five complementary techniques:
+This project implements four complementary techniques:
 
 | Component | Role |
 |---|---|
 | **Ditto** | Two-model personalisation: global model (DP-SGD, sent to server) + local model (proximal SGD, kept on device) |
 | **FedYogi** | Server-side adaptive optimiser (momentum + sign-based variance correction) replacing plain FedAvg |
-| **Stepwise-DP** | Persistent Opacus `PrivacyEngine` accumulates ε across all rounds — realistic cumulative privacy accounting |
-| **SecAgg** | Simulated — logged for traceability; in production, wrap strategy with `SecAggPlusWorkflow` |
-| **Sparse uplink** | 50 % magnitude pruning applied to global weights before uplink — cuts effective communication by ~50 % |
-| **INT8 quantisation** | Dynamic `qint8` quantisation of the local model — TinyML deployment proxy (evaluation only) |
+| **Stepwise-DP** | Persistent Opacus `PrivacyEngine` accumulates ε across all rounds -- realistic cumulative privacy accounting |
+| **Sparse uplink** | 50 % magnitude pruning applied to global weights before uplink -- cuts effective communication by ~50 % |
+| **INT8 quantisation** | Dynamic `qint8` quantisation of the local model -- TinyML deployment proxy (evaluation only) |
 
 ### File structure
 
@@ -74,7 +84,7 @@ Simulation resources (under `[tool.flwr.federations.local-simulation]`):
 
 ## KPI Output
 
-Results are written to `resultsfeat/results_ditto-FedYogi-sdp-secAgg-sparse.csv`.
+Results are written to `resultsfeat/results_ditto-FedYogi-sdp-sparse.csv`.
 
 **FIT metrics** (averaged across clients per round):
 `fit_time`, `peak_ram_mb`, `comm_size_mb`, `model_size_mb`, `dp_epsilon`, `estimated_energy`
