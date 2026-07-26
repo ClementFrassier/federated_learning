@@ -47,12 +47,12 @@ def _get_or_init_privacy_engine(node_id, num_clients, batch_size,
 # ── Train ─────────────────────────────────────────────────────────────────────
 @app.train()
 def train(msg: Message, context: Context) -> Message:
-    """FedProx + FedBN + DP-SGD local training step.
+    """FedProx + FedGN + DP-SGD local training step.
 
     Workflow
     --------
     1. Receive global weights (non-GN layers only) from the server.
-    2. Inject them into the local model — GN layers remain local (FedBN).
+    2. Inject them into the local model — GN layers remain local (FedGN).
     3. Train with FedProx + Opacus DP-SGD.
     4. Return only non-GN weights + KPI metrics.
     """
@@ -78,7 +78,7 @@ def train(msg: Message, context: Context) -> Message:
         node_id, num_clients, batch_size, noise_mult, max_grad_norm, alpha, seed
     )
 
-    # Inject server weights into non-GN layers only (FedBN: GN stays local)
+    # Inject server weights into non-GN layers only (FedGN: GN stays local)
     local_state = net_dp._module.state_dict()
     for k in local_state:
         if "gn" not in k and k in incoming_state_dict:
@@ -142,8 +142,8 @@ def train(msg: Message, context: Context) -> Message:
 def evaluate(msg: Message, context: Context) -> Message:
     """Three-level evaluation: global FP32 / local FP32 / local INT8 (TinyML proxy).
 
-    acc_global     : global model accuracy (no local FedBN adaptation)
-    acc_local_fp32 : local model accuracy  (with local GN layers — Ditto/FedBN gain)
+    acc_global     : global model accuracy (no local FedGN adaptation)
+    acc_local_fp32 : local model accuracy  (with local GN layers — Ditto/FedGN gain)
     quantization_error: accuracy drop from INT8 dynamic quantisation
 
     The two models differ because model_global has fresh GN weights (random init)
@@ -170,7 +170,7 @@ def evaluate(msg: Message, context: Context) -> Message:
     model_global.load_state_dict(global_state, strict=True)
 
     # EVAL 2 — Local model: inject server weights into the TRAINED model
-    #   (keeps locally-trained GN weights → FedBN personalisation benefit)
+    #   (keeps locally-trained GN weights → FedGN personalisation benefit)
     if node_id in _privacy_engines:
         _, net_dp, _, _ = _privacy_engines[node_id]
         model_local = net_dp._module

@@ -8,7 +8,7 @@ from flwr.app import Context, ConfigRecord, ArrayRecord, MetricRecord
 from task import Net
 
 CSV_DIR  = "resultsfeat"
-CSV_FILE = os.path.join(CSV_DIR, "results_fedProx+fedBN+standDP+SecAgg.csv")
+CSV_FILE = os.path.join(CSV_DIR, "results_fedProx+fedGN+standDP.csv")
 
 
 class MetricLogger:
@@ -85,7 +85,7 @@ def main(grid: Grid, context: Context) -> None:
     # the client reads the same key from context.run_config independently.
     proximal_mu = float(context.run_config.get("proximal_mu", 0.1))
 
-    # Initialise global model — server only tracks non-GN layers (FedBN)
+    # Initialise global model — server only tracks non-GN layers (FedGN)
     global_model  = Net()
     global_params = {k: v.cpu() for k, v in global_model.state_dict().items() if "gn" not in k}
     # ✅ Correct ArrayRecord constructor — must use the torch_state_dict kwarg

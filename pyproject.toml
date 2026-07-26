@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pytorch-flwr"
 version = "1.0.0"
-description = "Federated Learning — FedProx + FedBN + Standard-DP + SecAgg (simulated)"
+description = "Federated Learning: FedProx + FedGN + Standard-DP"
 readme = "README.md"
 # Flower 1.26+ requires Python >=3.10
 requires-python = ">=3.10"

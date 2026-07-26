@@ -19,7 +19,7 @@ class Net(nn.Module):
     """CNN for FashionMNIST (1-channel, 28×28).
     GroupNorm layers replace BatchNorm for:
     - Opacus (DP-SGD) compatibility (no per-sample statistics).
-    - FedBN-style local normalisation (GN weights are never sent to the server).
+    - FedGN-style local normalisation (GN weights are never sent to the server).
     """
 
     def __init__(self) -> None:
@@ -146,7 +146,7 @@ def train_fedprox_dp(
             loss = criterion(net_dp(images), labels)
 
             # FedProx proximal term: µ/2 · ||w − w_t||²
-            # GN layers are excluded (FedBN principle: normalisation is local)
+            # GN layers are excluded (FedGN principle: normalisation is local)
             proximal_term = sum(
                 torch.sum((param - global_params_on_device[name.replace("_module.", "")]) ** 2)
                 for name, param in net_dp.named_parameters()
