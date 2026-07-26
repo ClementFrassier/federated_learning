@@ -15,18 +15,18 @@ trainloader, testloader = load_data()
 
 class FlowerClient(fl.client.NumPyClient):
 
-    #Retourne les poids actuels du modèle local sous forme de liste de tableaux NumPy 
+    #Returns the current local model weights as a list of NumPy arrays
     def get_parameters(self,config):
         return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
-    #Reçoit les poids du serveur, les injecte dans le modèle local, entraîne le modèle sur les données locales
-    def fit(self,parameters,config): 
+    #Receives the server's weights, loads them into the local model, trains it on local data
+    def fit(self,parameters,config):
         set_parameters(net,parameters)
         train(net, trainloader, epochs=1)
         return self.get_parameters({}), len(trainloader.dataset), {}
-    
-    #Reçoit les poids du serveur et teste le modèle sur les données de validation locales.
-    def evaluate(self,parameters,config): 
+
+    #Receives the server's weights and tests the model on local validation data.
+    def evaluate(self,parameters,config):
         set_parameters(net,parameters)
         loss, accuracy = test(net, testloader)
         return float(loss), len(testloader.dataset), {"accuracy": float(accuracy)}

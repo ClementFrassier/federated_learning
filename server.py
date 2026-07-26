@@ -8,6 +8,6 @@ def weighted_average(metrics):
 fl.server.start_server(
     server_address="0.0.0.0:8080",
     config=fl.server.ServerConfig(num_rounds=3),    
-    #autre arg de strategy : fraction_fit : Pourcentage de clients à utiliser pour l'entraînement,min_available_clients : Nombre minimum de clients connectés avant de lancer le round
+    #other strategy args: fraction_fit: percentage of clients used for training, min_available_clients: minimum number of connected clients before starting the round
     strategy=fl.server.strategy.FedAvg(evaluate_metrics_aggregation_fn=weighted_average),
 )   
